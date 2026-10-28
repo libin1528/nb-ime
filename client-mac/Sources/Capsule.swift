@@ -34,7 +34,7 @@ final class Capsule {
         panel.hasShadow = true
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        glass.style = .regular
+        glass.style = .clear            // 比 regular 透，背后的内容看得更清楚；文字靠 CapsuleView 里垫的一层薄色托住
         glass.cornerRadius = CapsuleView.radius
         glass.contentView = view
         panel.contentView = glass
@@ -197,6 +197,9 @@ private final class CapsuleView: NSView {
     static let msgFont = NSFont.systemFont(ofSize: 13, weight: .medium)
     static let smallFont = NSFont.systemFont(ofSize: 12)
     static let timeFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+    static let veil = NSColor(name: nil) { a in
+        a.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 0, alpha: 0.28) : NSColor(white: 1, alpha: 0.32)
+    }
     static let red = NSColor(hex: 0xff453a), green = NSColor(hex: 0x30d158), orange = NSColor(hex: 0xff9f0a)
 
     override var isFlipped: Bool { true }
@@ -280,7 +283,10 @@ private final class CapsuleView: NSView {
     override func draw(_ dirty: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let b = bounds
-        // 底子是玻璃，这里只画内容；颜色都用系统的文字色，跟着玻璃的深浅自动变
+        // 底子是透明玻璃；先垫一层和文字反色的薄色，深背景上的黑字（浅背景上的白字）也看得清
+        Self.veil.setFill()
+        NSBezierPath(roundedRect: b, xRadius: Self.radius, yRadius: Self.radius).fill()
+        // 颜色都用系统的文字色，跟着玻璃的深浅自动变
         let ink = NSColor.labelColor
 
         // 宽度跟着窗口动画在变，按当前宽度决定是不是展开着
