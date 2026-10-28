@@ -170,9 +170,13 @@ final class GeneralPane: Pane {
 
 final class HotkeyPane: Pane {
     private weak var host: SettingsHost?
-    private let cap = KeyCap(Hotkey.keyLabel(Settings.current.hotkeyCode), size: 15, pad: 14)
+    private let line = NSStackView()
     private let hint = UI.label("修饰键（Option、Command、Control、Shift、Fn）或者 F1–F19 这类单键都可以", size: 12, color: .secondaryLabelColor)
-    private var changeButton: NSButton!
+    // 两个快捷键各一行：键帽、更换；第二个还能清掉
+    private let caps = [KeyCap("", size: 13, pad: 10), KeyCap("", size: 13, pad: 10)]
+    private var changeButtons: [NSButton] = []
+    private var clearButton: NSButton!
+    private var recordingSlot: Int?
 
     init(host: SettingsHost) {
         self.host = host
@@ -182,11 +186,23 @@ final class HotkeyPane: Pane {
     required init?(coder: NSCoder) { fatalError() }
 
     override func build() {
-        let line = UI.hstack([UI.label("按住", size: 15), cap, UI.label("说话，松开就输入", size: 15)], spacing: 10)
-        changeButton = UI.button("更换快捷键") { [weak self] in self?.startCapture() }
-        let hero = UI.vstack([line, changeButton, hint], spacing: 12, align: .centerX)
+        line.orientation = .horizontal
+        line.spacing = 10
+        let hero = UI.vstack([line, hint], spacing: 12, align: .centerX)
         hero.edgeInsets = NSEdgeInsets(top: 18, left: 0, bottom: 22, right: 0)
         add(hero)
+        changeButtons = (0..<2).map { i in UI.button("更换") { [weak self] in self?.startCapture(i) } }
+        clearButton = UI.button("清掉") { [weak self] in
+            Settings.current.hotkeyCode2 = nil
+            self?.hint.stringValue = "第二个快捷键清掉了"
+            self?.hint.textColor = .secondaryLabelColor
+            self?.refresh()
+        }
+        add(GroupView([
+            UI.row("快捷键", nil, UI.hstack([caps[0], changeButtons[0]], spacing: 8)),
+            UI.row("第二个快捷键", "可以不设；两个都能按住说话，效果一样",
+                   UI.hstack([caps[1], changeButtons[1], clearButton], spacing: 8)),
+        ]))
         let s = Settings.current
         add(GroupView([
             UI.row("按住多久才开始录音", "太短容易误触，太长开头会慢",
@@ -195,6 +211,29 @@ final class HotkeyPane: Pane {
                    slider(s.tailSeconds, 0, 0.6) { Settings.current.tailSeconds = $0 }),
         ]), after: 10)
         add(UI.footnote("按住快捷键时又按了别的键，算你在用组合快捷键，这次不录音。"))
+        refresh()
+    }
+
+    /// 按当前设置重画：上面一句「按住 A 或 B 说话」，下面两行键帽
+    private func refresh() {
+        let codes = Settings.current.hotkeyCodes
+        line.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        line.addArrangedSubview(UI.label("按住", size: 15))
+        for (i, c) in codes.enumerated() {
+            if i > 0 { line.addArrangedSubview(UI.label("或", size: 15)) }
+            line.addArrangedSubview(KeyCap(Hotkey.keyLabel(c), size: 15, pad: 14))
+        }
+        line.addArrangedSubview(UI.label("说话，松开就输入", size: 15))
+        let second = Settings.current.hotkeyCode2
+        for i in 0..<2 where recordingSlot != i {
+            caps[i].recording = false
+            caps[i].text = i == 0 ? Hotkey.keyLabel(Settings.current.hotkeyCode) : second.map(Hotkey.keyLabel) ?? "没设"
+        }
+        caps[1].alphaValue = second == nil && recordingSlot != 1 ? 0.5 : 1
+        changeButtons[1].title = second == nil ? "设置" : "更换"
+        changeButtons.forEach { $0.isEnabled = recordingSlot == nil }
+        clearButton.isHidden = second == nil
+        clearButton.isEnabled = recordingSlot == nil
     }
 
     private func slider(_ v: Double, _ lo: Double, _ hi: Double, _ f: @escaping (Double) -> Void) -> NSView {
@@ -216,33 +255,46 @@ final class HotkeyPane: Pane {
         return UI.hstack([s, val], spacing: 8)
     }
 
-    private func startCapture() {
+    private func startCapture(_ slot: Int) {
         guard let host else { return }
         guard host.captureHotkey({ [weak self] code in self?.captured(code) }) else {
             hint.stringValue = "要先在「系统设置 › 隐私与安全性 › 辅助功能」里打开 NB 输入法"
             return
         }
-        cap.recording = true
-        cap.text = "按下新的键…"
+        recordingSlot = slot
+        caps[slot].recording = true
+        caps[slot].text = "按下新的键…"
+        caps[slot].alphaValue = 1
         hint.stringValue = "按 Esc 取消"
-        changeButton.isEnabled = false
+        hint.textColor = .secondaryLabelColor
+        refresh()
     }
 
     private func captured(_ code: UInt16?) {
-        cap.recording = false
-        changeButton.isEnabled = true
+        guard let slot = recordingSlot else { return }
+        recordingSlot = nil
         if let code {
-            Settings.current.hotkeyCode = code
+            // 两个不能是同一个键
+            let other = slot == 0 ? Settings.current.hotkeyCode2 : Settings.current.hotkeyCode
+            if code == other {
+                hint.stringValue = "\(Hotkey.keyName(code))已经是\(slot == 0 ? "第二个" : "第一个")快捷键了，换一个"
+                hint.textColor = .systemRed
+                NSSound.beep()
+                refresh()
+                return
+            }
+            if slot == 0 { Settings.current.hotkeyCode = code } else { Settings.current.hotkeyCode2 = code }
             hint.stringValue = "已改成\(Hotkey.keyName(code))"
         } else {
             hint.stringValue = "没改"
         }
-        cap.text = Hotkey.keyLabel(Settings.current.hotkeyCode)
+        hint.textColor = .secondaryLabelColor
+        refresh()
     }
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
-        if cap.recording {
+        if recordingSlot != nil {
             host?.cancelHotkeyCapture()
             captured(nil)
         }

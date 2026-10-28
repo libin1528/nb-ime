@@ -99,7 +99,7 @@ final class Onboarding: NSObject, NSWindowDelegate {
             _ = AXIsProcessTrustedWithOptions(opts)
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
         }
-        steps[2].detailKey = Hotkey.keyLabel(Settings.current.hotkeyCode)
+        steps[2].detailKeys = Settings.current.hotkeyCodes.map(Hotkey.keyLabel)
         if triedBefore, heardText == nil {
             steps[2].set(done: true, status: "以前试过了", action: nil, nil)
         } else if let t = heardText {
@@ -127,10 +127,11 @@ private final class StepView: NSView {
     private var shown: (Bool, String, String?)?
 
     /// 试一下这一步的说明里要嵌当前快捷键
-    var detailKey: String? {
+    var detailKeys: [String] = [] {
         didSet {
-            guard let k = detailKey else { return }
-            detail.stringValue = "按住「\(k)」说「你好」，听到了这里会打勾"
+            guard !detailKeys.isEmpty else { return }
+            let k = detailKeys.map { "「\($0)」" }.joined(separator: "或")
+            detail.stringValue = "按住\(k)说「你好」，听到了这里会打勾"
         }
     }
 

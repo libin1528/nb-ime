@@ -66,7 +66,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     private func rebuild() {
         menu.removeAllItems()
-        header.hotkey = Hotkey.keyLabel(Settings.current.hotkeyCode)
+        header.hotkeys = Settings.current.hotkeyCodes.map(Hotkey.keyLabel)
         let head = NSMenuItem()
         head.view = header
         menu.addItem(head)
@@ -146,10 +146,10 @@ private final class ClosureMenuItem: NSMenuItem {
     @objc func run() { f?() }
 }
 
-/// 菜单第一行：连接状态 + 当前快捷键
+/// 菜单第一行：连接状态 + 当前快捷键（设了两个就都列出来）
 private final class MenuHeader: NSView {
     var status = MenuBar.Status.offline { didSet { needsDisplay = true } }
-    var hotkey = "" { didSet { needsDisplay = true } }
+    var hotkeys: [String] = [] { didSet { needsDisplay = true } }
 
     init() { super.init(frame: NSRect(x: 0, y: 0, width: 284, height: 52)) }
     required init?(coder: NSCoder) { fatalError() }
@@ -180,15 +180,22 @@ private final class MenuHeader: NSView {
         ("按住" as NSString).draw(at: NSPoint(x: cx, y: y), withAttributes: small)
         cx += ("按住 " as NSString).size(withAttributes: small).width
         let capFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        let capW = (hotkey as NSString).size(withAttributes: [.font: capFont]).width + 12
-        let cap = NSRect(x: cx, y: y, width: capW, height: 17)
-        let p = NSBezierPath(roundedRect: cap, xRadius: 5, yRadius: 5)
-        UI.chipBG.setFill()
-        p.fill()
-        NSColor.tertiaryLabelColor.setStroke()
-        p.lineWidth = 0.5
-        p.stroke()
-        (hotkey as NSString).draw(at: NSPoint(x: cx + 6, y: y + 1), withAttributes: [.font: capFont, .foregroundColor: NSColor.labelColor])
-        (" 说话" as NSString).draw(at: NSPoint(x: cap.maxX + 1, y: y), withAttributes: small)
+        for (i, hotkey) in hotkeys.enumerated() {
+            if i > 0 {
+                (" 或 " as NSString).draw(at: NSPoint(x: cx, y: y), withAttributes: small)
+                cx += (" 或 " as NSString).size(withAttributes: small).width
+            }
+            let capW = (hotkey as NSString).size(withAttributes: [.font: capFont]).width + 12
+            let cap = NSRect(x: cx, y: y, width: capW, height: 17)
+            let p = NSBezierPath(roundedRect: cap, xRadius: 5, yRadius: 5)
+            UI.chipBG.setFill()
+            p.fill()
+            NSColor.tertiaryLabelColor.setStroke()
+            p.lineWidth = 0.5
+            p.stroke()
+            (hotkey as NSString).draw(at: NSPoint(x: cx + 6, y: y + 1), withAttributes: [.font: capFont, .foregroundColor: NSColor.labelColor])
+            cx = cap.maxX
+        }
+        (" 说话" as NSString).draw(at: NSPoint(x: cx + 1, y: y), withAttributes: small)
     }
 }

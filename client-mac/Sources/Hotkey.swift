@@ -1,20 +1,21 @@
 // 全局热键：用 CGEventTap（.defaultTap）听键盘。NSEvent 的全局监听在有的机器上收不到修饰键。
 // 修饰键当热键时原样放行，普通键当热键时吞掉，免得打出字来。
+// 可以设两个快捷键，效果一样；两个同时按着只算一次，都松开了才算松开。
 
 import Cocoa
 
 final class Hotkey {
-    var code: UInt16
+    var codes: [UInt16] { didSet { held = held.intersection(codes) } }
     var paused = false               // 「暂停语音输入」
     var onDown: (() -> Void)?
     var onUp: (() -> Void)?
     var onOtherKey: (() -> Void)?    // 按住热键时又按了别的键
     private(set) var installed = false
     private var tap: CFMachPort?
-    private var held = false
+    private var held = Set<UInt16>()          // 正按着的快捷键
     private var capture: ((UInt16?) -> Void)?
 
-    init(code: UInt16) { self.code = code }
+    init(codes: [UInt16]) { self.codes = codes }
 
     func install() -> Bool {
         guard !installed else { return true }
@@ -80,43 +81,52 @@ final class Hotkey {
         return glyph[code].map { "\($0) \(keyName(code))" } ?? keyName(code)
     }
 
+    /// 「右 Option 或 F5」
+    static func describe(_ codes: [UInt16]) -> String { codes.map(keyName).joined(separator: " 或 ") }
+
     /// 返回 true 表示吞掉这个事件
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Bool {
         let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags.rawValue
         if let capture { return captureKey(type, code, flags, capture) }
         if paused { return false }
+        let ours = codes.contains(code)
 
-        if let mask = Self.modifierMasks[self.code] {
-            if type == .flagsChanged, code == self.code {
+        if let mask = Self.modifierMasks[code] {
+            if type == .flagsChanged, ours {
                 let down = flags & mask != 0
-                guard down != held else { return false }
-                held = down
-                Log.w(down ? "热键按下" : "热键松开")
-                if down { onDown?() } else { onUp?() }
-            } else if type == .keyDown, held {
-                onOtherKey?()
+                if down != held.contains(code) { press(code, down) }
             }
             return false
         }
 
-        // 普通键当热键：只认不带修饰键的单按，按住期间的自动重复也吞掉
-        guard code == self.code, type == .keyDown || type == .keyUp else { return false }
-        let mods: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue
-            | CGEventFlags.maskControl.rawValue | CGEventFlags.maskShift.rawValue
-        if type == .keyDown {
-            if held { return true }
-            guard flags & mods == 0 else { return false }
-            held = true
-            Log.w("热键按下")
-            onDown?()
+        // 普通键当热键：只认不带修饰键的单按（另一个修饰键快捷键正按着时除外），按住期间的自动重复也吞掉
+        if ours, type == .keyDown || type == .keyUp {
+            let mods: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue
+                | CGEventFlags.maskControl.rawValue | CGEventFlags.maskShift.rawValue
+            if type == .keyDown {
+                if held.contains(code) { return true }
+                guard flags & mods == 0 || !held.isEmpty else { return false }
+                press(code, true)
+                return true
+            }
+            guard held.contains(code) else { return false }
+            press(code, false)
             return true
         }
-        guard held else { return false }
-        held = false
-        Log.w("热键松开")
-        onUp?()
-        return true
+
+        // 按住修饰键快捷键时又按了别的键
+        if type == .keyDown, held.contains(where: { Self.modifierMasks[$0] != nil }) { onOtherKey?() }
+        return false
+    }
+
+    /// 第一个按下才算开始，最后一个松开才算结束
+    private func press(_ code: UInt16, _ down: Bool) {
+        let before = held.isEmpty
+        if down { held.insert(code) } else { held.remove(code) }
+        let note = before != held.isEmpty ? "" : down ? "（另一个已经按着，不另算一次）" : "（另一个还按着，接着录）"
+        Log.w("热键\(down ? "按下" : "松开") \(Self.keyName(code))\(note)")
+        if before, !held.isEmpty { onDown?() } else if !before, held.isEmpty { onUp?() }
     }
 
     private func captureKey(_ type: CGEventType, _ code: UInt16, _ flags: UInt64, _ done: @escaping (UInt16?) -> Void) -> Bool {
@@ -134,9 +144,7 @@ final class Hotkey {
             return true
         }
         capture = nil
-        self.code = code
-        held = false
-        Log.w("快捷键改成 \(Self.keyName(code))（keyCode=\(code)）")
+        Log.w("录到快捷键 \(Self.keyName(code))（keyCode=\(code)）")
         DispatchQueue.main.async { done(code) }
         return type == .keyDown
     }

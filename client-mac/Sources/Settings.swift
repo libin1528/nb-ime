@@ -13,6 +13,7 @@ struct Settings {
     var serverPort = 6016
     var localPort = 16016            // 隧道在本机的端口
     var hotkeyCode: UInt16 = 61      // 61 = 右 Option
+    var hotkeyCode2: UInt16?         // 第二个快捷键，可以不设；老配置里没有这一项
     var holdThreshold = 0.3          // 按住不到这么久算误触，不录
     var tailSeconds = 0.25           // 松开后多录一小段，免得吞掉最后一个字
     var language = "auto"
@@ -66,6 +67,7 @@ struct Settings {
         if let v = j["serverPort"] as? Int { s.serverPort = v }
         if let v = j["localPort"] as? Int { s.localPort = v }
         if let v = j["hotkeyCode"] as? Int { s.hotkeyCode = UInt16(v) }
+        if let v = j["hotkeyCode2"] as? Int, UInt16(v) != s.hotkeyCode { s.hotkeyCode2 = UInt16(v) }
         if let v = j["holdThreshold"] as? Double { s.holdThreshold = v }
         if let v = j["tailSeconds"] as? Double { s.tailSeconds = v }
         if let v = j["language"] as? String { s.language = v }
@@ -79,17 +81,21 @@ struct Settings {
     }
 
     func save() {
-        let j: [String: Any] = [
+        var j: [String: Any] = [
             "tunnelHost": tunnelHost, "serverHost": serverHost, "serverPort": serverPort,
             "localPort": localPort, "hotkeyCode": Int(hotkeyCode), "holdThreshold": holdThreshold,
             "tailSeconds": tailSeconds, "language": language, "restoreClipboard": restoreClipboard,
             "stripShortTrailingPeriod": stripShortTrailingPeriod, "hudPosition": hudPosition,
             "sounds": sounds, "streamPreview": streamPreview, "onboarded": onboarded,
         ]
+        if let hotkeyCode2 { j["hotkeyCode2"] = Int(hotkeyCode2) }
         if let d = try? JSONSerialization.data(withJSONObject: j, options: [.prettyPrinted, .sortedKeys]) {
             try? d.write(to: Settings.configURL)
         }
     }
+
+    /// 两个快捷键都能按住说话；没设第二个时只有一个
+    var hotkeyCodes: [UInt16] { [hotkeyCode] + (hotkeyCode2.map { [$0] } ?? []) }
 
     var url: URL {
         tunnelHost.isEmpty

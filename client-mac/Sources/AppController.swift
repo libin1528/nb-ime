@@ -53,8 +53,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
 
     func applicationDidFinishLaunching(_ n: Notification) {
         let s = Settings.current
-        hotkey = Hotkey(code: s.hotkeyCode)
-        Log.w("启动 \(Bundle.main.bundleIdentifier ?? "") → \(s.url)，热键 \(Hotkey.keyName(s.hotkeyCode))")
+        hotkey = Hotkey(codes: s.hotkeyCodes)
+        Log.w("启动 \(Bundle.main.bundleIdentifier ?? "") → \(s.url)，热键 \(Hotkey.describe(s.hotkeyCodes))")
         connect()
         if let testFile {
             runFileTest(testFile)
@@ -145,7 +145,10 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             Log.w("连接设置改了 → \(s.url)")
             connect()
         }
-        if hotkey.code != s.hotkeyCode { hotkey.code = s.hotkeyCode }
+        if hotkey.codes != s.hotkeyCodes {
+            hotkey.codes = s.hotkeyCodes
+            Log.w("快捷键改成 \(Hotkey.describe(s.hotkeyCodes))")
+        }
         refreshStatus()
     }
 
@@ -179,7 +182,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.installHotkey() }
             return
         }
-        Log.w("辅助功能权限已有，开始监听热键（\(Hotkey.keyName(hotkey.code))）")
+        Log.w("辅助功能权限已有，开始监听热键（\(Hotkey.describe(hotkey.codes))）")
         if Settings.current.onboarded, AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
             AVCaptureDevice.requestAccess(for: .audio) { ok in Log.w("麦克风权限 \(ok)") }
         }
