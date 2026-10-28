@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.libin.itxvoice</string>
+  <key>CFBundleName</key><string>ITX 语音输入</string>
+  <key>CFBundleDisplayName</key><string>ITX 语音输入</string>
+  <key>CFBundleExecutable</key><string>ITXVoice</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>按住右 Option 说话时录音，送到局域网里的 ITX 识别成文字。</string>
+</dict>
+</plist>
