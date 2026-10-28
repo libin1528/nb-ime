@@ -1,11 +1,17 @@
 // 全局热键：用 CGEventTap（.defaultTap）听键盘。NSEvent 的全局监听在有的机器上收不到修饰键。
 // 修饰键当热键时原样放行，普通键当热键时吞掉，免得打出字来。
 // 可以设两个快捷键，效果一样；两个同时按着只算一次，都松开了才算松开。
+// 鼠标侧键（左右键以外的键）也能当快捷键，存成 1000 + 按键号，和键盘的 keyCode 不会撞；按下时同样吞掉，免得浏览器跟着后退。
 
 import Cocoa
 
 final class Hotkey {
-    var codes: [UInt16] { didSet { held = held.intersection(codes) } }
+    var codes: [UInt16] {
+        didSet {
+            // 改掉的键正按着的话当它松开了
+            for c in held where !codes.contains(c) { press(c, false, note: "（快捷键改了）") }
+        }
+    }
     var paused = false               // 「暂停语音输入」
     var onDown: (() -> Void)?
     var onUp: (() -> Void)?
@@ -20,6 +26,7 @@ final class Hotkey {
     func install() -> Bool {
         guard !installed else { return true }
         let mask = (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
+            | (1 << CGEventType.otherMouseDown.rawValue) | (1 << CGEventType.otherMouseUp.rawValue)
         let me = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
@@ -27,8 +34,10 @@ final class Hotkey {
             callback: { _, type, event, info in
                 let me = Unmanaged<Hotkey>.fromOpaque(info!).takeUnretainedValue()
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                    Log.w("事件钩子被系统停用，重新打开")
+                    Log.w("事件钩子被系统停用（\(type == .tapDisabledByTimeout ? "超时" : "系统输入保护")），重新打开")
                     if let t = me.tap { CGEvent.tapEnable(tap: t, enable: true) }
+                    // 停用期间可能漏掉了松开，按现在实际按着的键对一遍
+                    me.resync()
                     return Unmanaged.passUnretained(event)
                 }
                 return me.handle(type, event) ? nil : Unmanaged.passUnretained(event)
@@ -55,7 +64,15 @@ final class Hotkey {
         63: 0x800000,             // Fn
     ]
 
+    static let mouseBase: UInt16 = 1000
+    static func isMouse(_ code: UInt16) -> Bool { code >= mouseBase }
+
     static func keyName(_ code: UInt16) -> String {
+        if isMouse(code) {
+            // 按键号从 0 数：2 是中键，3、4 一般是两个侧键（鼠标驱动里常叫「按键 4 / 5」）
+            let n = code - mouseBase
+            return n == 2 ? "鼠标中键" : "鼠标侧键 \(n + 1)"
+        }
         let names: [UInt16: String] = [
             61: "右 Option", 58: "左 Option", 54: "右 Command", 55: "左 Command",
             60: "右 Shift", 56: "左 Shift", 62: "右 Control", 59: "左 Control", 63: "Fn",
@@ -86,11 +103,32 @@ final class Hotkey {
 
     /// 返回 true 表示吞掉这个事件
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Bool {
+        if type == .otherMouseDown || type == .otherMouseUp {
+            let code = Self.mouseBase + UInt16(clamping: event.getIntegerValueField(.mouseEventButtonNumber))
+            if let capture {
+                guard type == .otherMouseDown else { return true }
+                self.capture = nil
+                Log.w("录到快捷键 \(Self.keyName(code))")
+                DispatchQueue.main.async { capture(code) }
+                return true
+            }
+            guard !paused, codes.contains(code) else { return false }
+            let down = type == .otherMouseDown
+            if down != held.contains(code) { press(code, down) }
+            return true
+        }
         let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags.rawValue
         if let capture { return captureKey(type, code, flags, capture) }
         if paused { return false }
         let ours = codes.contains(code)
+
+        // 修饰键的松开漏收了（比如钩子被停用过），下一次修饰键变化时按标志位补上
+        if type == .flagsChanged {
+            for c in held where c != code {
+                if let m = Self.modifierMasks[c], flags & m == 0 { press(c, false, note: "（没收到松开，补上）") }
+            }
+        }
 
         if let mask = Self.modifierMasks[code] {
             if type == .flagsChanged, ours {
@@ -120,11 +158,28 @@ final class Hotkey {
         return false
     }
 
+    /// 按住的键里，实际已经松开的补一个松开
+    func resync() {
+        let src = CGEventSourceStateID.combinedSessionState
+        let flags = CGEventSource.flagsState(src).rawValue
+        for c in held {
+            let down: Bool
+            if Self.isMouse(c) {
+                down = CGEventSource.buttonState(src, button: CGMouseButton(rawValue: UInt32(c - Self.mouseBase)) ?? .center)
+            } else if let m = Self.modifierMasks[c] {
+                down = flags & m != 0
+            } else {
+                down = CGEventSource.keyState(src, key: c)
+            }
+            if !down { press(c, false, note: "（没收到松开，补上）") }
+        }
+    }
+
     /// 第一个按下才算开始，最后一个松开才算结束
-    private func press(_ code: UInt16, _ down: Bool) {
+    private func press(_ code: UInt16, _ down: Bool, note: String? = nil) {
         let before = held.isEmpty
         if down { held.insert(code) } else { held.remove(code) }
-        let note = before != held.isEmpty ? "" : down ? "（另一个已经按着，不另算一次）" : "（另一个还按着，接着录）"
+        let note = note ?? (before != held.isEmpty ? "" : down ? "（另一个已经按着，不另算一次）" : "（另一个还按着，接着录）")
         Log.w("热键\(down ? "按下" : "松开") \(Self.keyName(code))\(note)")
         if before, !held.isEmpty { onDown?() } else if !before, held.isEmpty { onUp?() }
     }

@@ -171,7 +171,7 @@ final class GeneralPane: Pane {
 final class HotkeyPane: Pane {
     private weak var host: SettingsHost?
     private let line = NSStackView()
-    private let hint = UI.label("修饰键（Option、Command、Control、Shift、Fn）或者 F1–F19 这类单键都可以", size: 12, color: .secondaryLabelColor)
+    private let hint = UI.label("修饰键（Option、Command、Control、Shift、Fn）、F1–F19 这类单键、鼠标侧键都可以", size: 12, color: .secondaryLabelColor)
     // 两个快捷键各一行：键帽、更换；第二个还能清掉
     private let caps = [KeyCap("", size: 13, pad: 10), KeyCap("", size: 13, pad: 10)]
     private var changeButtons: [NSButton] = []
@@ -210,7 +210,7 @@ final class HotkeyPane: Pane {
             UI.row("松开后多录一会儿", "免得吞掉最后一个字",
                    slider(s.tailSeconds, 0, 0.6) { Settings.current.tailSeconds = $0 }),
         ]), after: 10)
-        add(UI.footnote("按住快捷键时又按了别的键，算你在用组合快捷键，这次不录音。"))
+        add(UI.footnote("按住快捷键时又按了别的键，算你在用组合快捷键，这次不录音。鼠标侧键录不上的话，看看罗技 Options+ 这类鼠标驱动是不是把它改成了别的功能。"))
         refresh()
     }
 
@@ -265,7 +265,7 @@ final class HotkeyPane: Pane {
         caps[slot].recording = true
         caps[slot].text = "按下新的键…"
         caps[slot].alphaValue = 1
-        hint.stringValue = "按 Esc 取消"
+        hint.stringValue = "按下键盘上的键或鼠标侧键；按 Esc 取消"
         hint.textColor = .secondaryLabelColor
         refresh()
     }
