@@ -14,5 +14,5 @@ Newbase Lab 内部孵化的 Mac 语音输入小工具。
 
 调试：
 - `NBIME --test-file <音频>`：不用麦克风，按实时节奏走一遍同样的发送路径（含流式预览），打印 `PREVIEW` / `RESULT`。
-- `NBIME --demo <界面>`：截图用，`listen` `quiet` `preview` `long` `think` `done` `miss` `offline` `menu` `onboarding` `settings:0`…`settings:5`。
+- `NBIME --demo <界面>`：截图用，`listen` `quiet` `preview` `long` `think` `done` `miss` `offline` `morph`（录变形用的一整套）`menu` `onboarding` `settings:0`…`settings:5`。
 - 这两种模式会借用已经开着的隧道，不动它。

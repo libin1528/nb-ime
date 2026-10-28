@@ -1,5 +1,7 @@
 // 录音提示 A：屏幕底部的胶囊。跟音量跳的波形、计时、没听到声音、识别中、已输入、没听清、连不上。
 // 开了流式预览时，第一段文字回来后胶囊向上展开成一块，实时显示文字（design/mockup.html 2.1 节）。
+// 底子是系统的 Liquid Glass（NSGlassEffectView）：透出并折射背后的内容，颜色跟着背后深浅变；
+// 出现时从一颗圆长成胶囊，状态之间整块形状连续变形，消失时缩回去。
 
 import Cocoa
 
@@ -14,7 +16,7 @@ final class Capsule {
     }
 
     private let panel: NSPanel
-    private let blur = NSVisualEffectView()
+    private let glass = NSGlassEffectView()
     private let view = CapsuleView()
     private var timer: Timer?
     private var hideWork: DispatchWorkItem?
@@ -32,16 +34,10 @@ final class Capsule {
         panel.hasShadow = true
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.appearance = NSAppearance(named: .darkAqua)
-        blur.material = .hudWindow
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        blur.autoresizingMask = [.width, .height]
-        view.autoresizingMask = [.width, .height]
-        let root = NSView()
-        root.addSubview(blur)
-        root.addSubview(view)
-        panel.contentView = root
+        glass.style = .regular
+        glass.cornerRadius = CapsuleView.radius
+        glass.contentView = view
+        panel.contentView = glass
     }
 
     // MARK: 对外
@@ -87,6 +83,8 @@ final class Capsule {
         visible = false
         NSAnimationContext.runAnimationGroup({ c in
             c.duration = 0.25
+            c.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().setFrame(seed(of: panel.frame), display: true)
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             guard let self, !self.visible else { return }
@@ -125,12 +123,11 @@ final class Capsule {
         let size = view.desiredSize()
         targetSize = size
         let target = frame(for: size)
-        blur.maskImage = Self.mask(radius: view.radius)
         guard target != panel.frame else { return }
         if animated && visible {
             NSAnimationContext.runAnimationGroup { c in
                 c.duration = 0.35
-                c.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 0.9, 0.3, 1)
+                c.timingFunction = Self.spring
                 panel.animator().setFrame(target, display: true)
             } completionHandler: { [weak self] in self?.panel.invalidateShadow() }
         } else {
@@ -143,12 +140,16 @@ final class Capsule {
         hideWork?.cancel()
         if !visible {
             visible = true
+            let target = frame(for: targetSize)
             panel.alphaValue = 0
+            panel.setFrame(seed(of: target), display: true)
             panel.orderFrontRegardless()
             NSAnimationContext.runAnimationGroup { c in
-                c.duration = 0.2
+                c.duration = 0.4
+                c.timingFunction = Self.spring
+                panel.animator().setFrame(target, display: true)
                 panel.animator().alphaValue = 1
-            }
+            } completionHandler: { [weak self] in self?.panel.invalidateShadow() }
         }
         if timer == nil {
             let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
@@ -162,15 +163,13 @@ final class Capsule {
         }
     }
 
-    private static func mask(radius r: CGFloat) -> NSImage {
-        let img = NSImage(size: NSSize(width: r * 2 + 1, height: r * 2 + 1), flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill()
-            return true
-        }
-        img.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
-        img.resizingMode = .stretch
-        return img
+    /// 略微冲过头再回来，像弹簧
+    private static let spring = CAMediaTimingFunction(controlPoints: 0.3, 1.25, 0.4, 1)
+
+    /// 出现前 / 消失后的样子：同一个底边中点上的一颗圆
+    private func seed(of r: NSRect) -> NSRect {
+        let d = CapsuleView.rowH
+        return NSRect(x: (r.midX - d / 2).rounded(), y: r.minY, width: d, height: d)
     }
 }
 
@@ -195,7 +194,7 @@ private final class CapsuleView: NSView {
     static let maxLines = 3
     static let expandedW: CGFloat = 400
     static let textFont = NSFont.systemFont(ofSize: 14)
-    static let msgFont = NSFont.systemFont(ofSize: 13)
+    static let msgFont = NSFont.systemFont(ofSize: 13, weight: .medium)
     static let smallFont = NSFont.systemFont(ofSize: 12)
     static let timeFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
     static let red = NSColor(hex: 0xff453a), green = NSColor(hex: 0x30d158), orange = NSColor(hex: 0xff9f0a)
@@ -230,7 +229,8 @@ private final class CapsuleView: NSView {
     }
 
     var expanded: Bool { !preview.isEmpty && (mode == .listening || mode == .thinking) }
-    var radius: CGFloat { expanded ? 18 : 22 }
+    /// 收起和展开用同一个圆角，变形时只有长宽在变；左下角的圆钮离边 8，圆角正好和它同心
+    static let radius: CGFloat = 22
     private var elapsed: TimeInterval { frozen ?? Date().timeIntervalSince(start) }
     private var quiet: Bool { mode == .listening && !heard && elapsed > 2 }
 
@@ -280,13 +280,8 @@ private final class CapsuleView: NSView {
     override func draw(_ dirty: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let b = bounds
-        // 底色：在毛玻璃上再压一层深灰，和稿子里的 rgba(28,28,30,.8) 接近；外加一圈细白边
-        let shape = NSBezierPath(roundedRect: b.insetBy(dx: 0.25, dy: 0.25), xRadius: radius, yRadius: radius)
-        NSColor(hex: 0x1c1c1e, alpha: 0.72).setFill()
-        shape.fill()
-        NSColor(white: 1, alpha: 0.14).setStroke()
-        shape.lineWidth = 0.5
-        shape.stroke()
+        // 底子是玻璃，这里只画内容；颜色都用系统的文字色，跟着玻璃的深浅自动变
+        let ink = NSColor.labelColor
 
         // 宽度跟着窗口动画在变，按当前宽度决定是不是展开着
         if !preview.isEmpty, b.height > Self.rowH + 8 { drawPreview(ctx, b) }
@@ -306,51 +301,51 @@ private final class CapsuleView: NSView {
             fillBadge(badge, Self.red, symbol: "mic.fill")
             drawTime(cy, b)
             if quiet {
-                drawText(Self.quietText, Self.msgFont, .init(white: 1, alpha: 0.92), x: x, cy: cy)
+                drawText(Self.quietText, Self.msgFont, ink, x: x, cy: cy)
             } else {
-                let n = Int((b.width - x - 10 - Self.timeW - 16) / 5)
+                let n = max(0, Int((b.width - x - 10 - Self.timeW - 16) / 5))   // 刚长出来时还很窄
                 let vals = hist.suffix(n)
                 for (i, v) in vals.enumerated() {
                     let h = 3 + CGFloat(v) * 21
                     let bar = NSRect(x: x + CGFloat(i) * 5, y: cy - h / 2, width: 3, height: h)
-                    NSColor(white: 1, alpha: CGFloat(0.55 + v * 0.45)).setFill()
+                    ink.withAlphaComponent(CGFloat(0.5 + v * 0.5)).setFill()
                     NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).fill()
                 }
             }
         case .thinking:
             drawShimmer(ctx, b, now)
-            fillBadge(badge, NSColor(white: 1, alpha: 0.12), symbol: nil)
+            fillBadge(badge, ink.withAlphaComponent(0.1), symbol: nil)
             drawSpinner(ctx, badge, now)
-            x += drawText("识别中", Self.msgFont, .init(white: 1, alpha: 0.92), x: x, cy: cy) + 10
+            x += drawText("识别中", Self.msgFont, ink, x: x, cy: cy) + 10
             for i in 0..<3 {
                 let phase = (now.timeIntervalSinceReferenceDate - Double(i) * 0.15).truncatingRemainder(dividingBy: 1)
                 let up = phase < 0.4 ? sin(phase / 0.4 * .pi) : 0
-                NSColor(white: 1, alpha: 0.25 + 0.75 * up).setFill()
+                ink.withAlphaComponent(0.25 + 0.75 * up).setFill()
                 NSBezierPath(ovalIn: NSRect(x: x + CGFloat(i) * 9, y: cy - 2.5 - 3 * up, width: 5, height: 5)).fill()
             }
             drawTime(cy, b)
         case .done(let n):
             fillBadge(badge, Self.green, symbol: "checkmark")
-            x += drawText("已输入", Self.msgFont, .init(white: 1, alpha: 0.92), x: x, cy: cy) + 6
-            drawText("\(n) 字", Self.smallFont, .init(white: 1, alpha: 0.55), x: x, cy: cy)
+            x += drawText("已输入", Self.msgFont, ink, x: x, cy: cy) + 6
+            drawText("\(n) 字", Self.smallFont, .secondaryLabelColor, x: x, cy: cy)
         case .miss:
-            fillBadge(badge, NSColor(white: 1, alpha: 0.16), symbol: "questionmark")
-            drawText("没听清，再说一次", Self.msgFont, .init(white: 1, alpha: 0.92), x: x, cy: cy)
+            fillBadge(badge, ink.withAlphaComponent(0.12), symbol: "questionmark", tint: ink)
+            drawText("没听清，再说一次", Self.msgFont, ink, x: x, cy: cy)
         case .offline:
             fillBadge(badge, Self.orange, symbol: "wifi.slash")
-            x += drawText("连不上识别服务", Self.msgFont, .init(white: 1, alpha: 0.92), x: x, cy: cy) + 6
-            drawText("正在重试", Self.smallFont, .init(white: 1, alpha: 0.55), x: x, cy: cy)
+            x += drawText("连不上识别服务", Self.msgFont, ink, x: x, cy: cy) + 6
+            drawText("正在重试", Self.smallFont, .secondaryLabelColor, x: x, cy: cy)
         case .note(let sym, let t):
-            fillBadge(badge, NSColor(white: 1, alpha: 0.16), symbol: sym)
-            drawText(t, Self.msgFont, .init(white: 1, alpha: 0.92), x: x, cy: cy)
+            fillBadge(badge, ink.withAlphaComponent(0.12), symbol: sym, tint: ink)
+            drawText(t, Self.msgFont, ink, x: x, cy: cy)
         }
     }
 
-    private func fillBadge(_ r: NSRect, _ color: NSColor, symbol: String?) {
+    private func fillBadge(_ r: NSRect, _ color: NSColor, symbol: String?, tint: NSColor = .white) {
         color.setFill()
         NSBezierPath(ovalIn: r).fill()
         guard let symbol else { return }
-        let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold).applying(.init(paletteColors: [.white]))
+        let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold).applying(.init(paletteColors: [tint]))
         guard let img = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return }
         let s = img.size
         img.draw(in: NSRect(x: r.midX - s.width / 2, y: r.midY - s.height / 2, width: s.width, height: s.height),
@@ -368,7 +363,7 @@ private final class CapsuleView: NSView {
     private func drawTime(_ cy: CGFloat, _ b: NSRect) {
         let t = Int(elapsed)
         let s = "\(t / 60):" + String(format: "%02d", t % 60)
-        let a: [NSAttributedString.Key: Any] = [.font: Self.timeFont, .foregroundColor: NSColor(white: 1, alpha: 0.72)]
+        let a: [NSAttributedString.Key: Any] = [.font: Self.timeFont, .foregroundColor: NSColor.labelColor.withAlphaComponent(0.7)]
         let size = (s as NSString).size(withAttributes: a)
         (s as NSString).draw(at: NSPoint(x: b.width - 16 - size.width, y: cy - size.height / 2), withAttributes: a)
     }
@@ -376,10 +371,10 @@ private final class CapsuleView: NSView {
     private func drawSpinner(_ ctx: CGContext, _ r: NSRect, _ now: Date) {
         let c = CGPoint(x: r.midX, y: r.midY)
         ctx.setLineWidth(2)
-        ctx.setStrokeColor(CGColor(gray: 1, alpha: 0.25))
+        ctx.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.2).cgColor)
         ctx.strokeEllipse(in: CGRect(x: c.x - 7, y: c.y - 7, width: 14, height: 14))
         let a = CGFloat(now.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.8) / 0.8) * 2 * .pi
-        ctx.setStrokeColor(.white)
+        ctx.setStrokeColor(NSColor.labelColor.cgColor)
         ctx.setLineCap(.round)
         ctx.addArc(center: c, radius: 7, startAngle: a, endAngle: a + .pi / 2, clockwise: false)
         ctx.strokePath()
@@ -392,7 +387,7 @@ private final class CapsuleView: NSView {
         let colors = [CGColor(gray: 1, alpha: 0), CGColor(gray: 1, alpha: 0.12), CGColor(gray: 1, alpha: 0)] as CFArray
         guard let g = CGGradient(colorsSpace: nil, colors: colors, locations: [0, 0.5, 1]) else { return }
         ctx.saveGState()
-        ctx.addPath(CGPath(roundedRect: b, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        ctx.addPath(CGPath(roundedRect: b, cornerWidth: Self.radius, cornerHeight: Self.radius, transform: nil))
         ctx.clip()
         ctx.drawLinearGradient(g, start: CGPoint(x: cx - w * 0.2, y: 0), end: CGPoint(x: cx + w * 0.2, y: 0), options: [])
         ctx.restoreGState()
@@ -405,12 +400,12 @@ private final class CapsuleView: NSView {
         ps.lineBreakMode = .byWordWrapping
         let base: CGFloat = mode == .thinking ? 0.5 : 0.95
         let s = NSMutableAttributedString(string: text, attributes: [
-            .font: Self.textFont, .paragraphStyle: ps, .foregroundColor: NSColor(white: 1, alpha: base),
+            .font: Self.textFont, .paragraphStyle: ps, .foregroundColor: NSColor.labelColor.withAlphaComponent(base),
         ])
         let t = min(1, now.timeIntervalSince(newAt) / 0.5)
         let n = (text as NSString).length
         if t < 1, newFrom < n {
-            s.addAttribute(.foregroundColor, value: NSColor(white: 1, alpha: base * (0.25 + 0.75 * t)),
+            s.addAttribute(.foregroundColor, value: NSColor.labelColor.withAlphaComponent(base * (0.25 + 0.75 * t)),
                            range: NSRange(location: newFrom, length: n - newFrom))
         }
         return s

@@ -562,6 +562,16 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         case "done": capsule.show(.done(55), for: 600)
         case "miss": capsule.show(.miss, for: 600)
         case "offline": capsule.show(.offline, for: 600)
+        case "morph":
+            // 录屏看变形：长出来 → 展开 → 识别中 → 已输入 → 缩回去
+            capsule.showListening(); wobble()
+            let steps: [(Double, () -> Void)] = [
+                (1.6, { self.capsule.setPreview(text) }),
+                (3.4, { self.capsule.setPreview(long) }),
+                (5.0, { self.capsule.showThinking() }),
+                (6.4, { self.capsule.show(.done(55), for: 1.6) }),
+            ]
+            for (t, f) in steps { DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: f) }
         case "onboarding": onboarding.show()
         case "menu": DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.menuBar?.popUp() }
         default:
