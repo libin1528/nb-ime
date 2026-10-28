@@ -258,7 +258,7 @@ final class WordsPane: Pane, NSTextViewDelegate {
     private var saveWork: DispatchWorkItem?
 
     override func build() {
-        add(UI.wrapping("人名、产品名、专业词，一行一个。识别时会优先往这些词上靠，比如加了「小圆」就不会再听成「小袁」。",
+        add(UI.wrapping("人名、产品名、专业词，一行一个。识别时会优先往这些词上靠，读音一样的也会换成这里的写法，比如加了「Wan3」，说「万三」就输入 Wan3。",
                         size: 13, width: SettingsWindow.inner), after: 12)
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true

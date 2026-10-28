@@ -365,7 +365,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         let t = String(format: "%.1f", Date().timeIntervalSince(previewStarted))
         if testFile != nil { print("PREVIEW \(t)s \(text)") }
         Log.w("预览 \(t)s：\(text)")
-        capsule.setPreview(text)
+        capsule.setPreview(Hotfix.apply(text, Settings.hotwordList()))
     }
 
     // MARK: 结果
@@ -410,6 +410,11 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         let ms = started.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
         if Settings.current.stripShortTrailingPeriod, text.count <= 12, let last = text.last, "。.".contains(last) {
             text.removeLast()
+        }
+        let fixed = Hotfix.apply(text, Settings.hotwordList())
+        if fixed != text {
+            Log.w("按读音换回热词：\(text) → \(fixed)")
+            text = fixed
         }
         Log.w("结果 \(id.prefix(8)) 松开后 \(ms)ms：\(text)")
         refreshStatus()
