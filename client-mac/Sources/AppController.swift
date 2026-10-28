@@ -61,6 +61,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             return
         }
         setupMenuBar()
+        recorder.onSamples = { [weak self] in self?.handleSamples($0) }
         hotkey.onDown = { [weak self] in self?.hotkeyDown() }
         hotkey.onUp = { [weak self] in self?.hotkeyUp() }
         hotkey.onOtherKey = { [weak self] in
