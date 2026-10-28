@@ -1,7 +1,7 @@
 # 在 ITX 上把 CapsWriter 服务端注册成「登录后自动启动、后台运行」的计划任务，并立即启动。
 # 用法（在 ITX 上，以登录用户身份）：powershell -NoProfile -File install-autostart.ps1
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
-$dir = "C:\Users\qyqx1\CapsWriter-Offline"
+$dir = Join-Path $env:USERPROFILE "CapsWriter-Offline"   # 解压的位置不一样就改这里
 $user = "$env:USERDOMAIN\$env:USERNAME"
 
 Get-Process start_server -ErrorAction SilentlyContinue | Stop-Process -Force

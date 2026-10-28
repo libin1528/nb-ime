@@ -6,7 +6,7 @@
 
 | 项 | 值 |
 |---|---|
-| 目录 | `C:\Users\qyqx1\CapsWriter-Offline` |
+| 目录 | `%USERPROFILE%\CapsWriter-Offline` |
 | 模型 | `models\Qwen3-ASR\Qwen3-ASR-1.7B\` |
 | 监听 | `127.0.0.1:6016`（只听本机，客户端走 ssh 隧道，防火墙没动） |
 | 自启 | 计划任务 `CapsWriterServer`，登录后启动，S4U 后台运行，挂了 1 分钟内重启 |
@@ -19,7 +19,7 @@
 1. 在 Mac 上下载（ITX 直连 GitHub 只有约 240KB/s）：
    - `CapsWriter-Offline-20260914.zip`（v2.6 release，105MB）
    - `Qwen3-ASR-1.7B-q5_k.zip`（models release，1.9GB）
-2. `scp` 到 ITX，解压：服务端解到 `C:\Users\qyqx1\`，模型解到 `CapsWriter-Offline\models\Qwen3-ASR\`。
+2. `scp` 到 ITX，解压：服务端解到用户目录 `%USERPROFILE%\`，模型解到 `CapsWriter-Offline\models\Qwen3-ASR\`。
    Mac 上的 `unzip` 会把包里的中文文件名弄坏，要在 ITX 上用 `Expand-Archive` 解。
 3. 改 `config_server.py` 的上面两处。
 4. 在 ITX 上跑 `install-autostart.ps1`。
@@ -28,7 +28,7 @@
 
 ```powershell
 schtasks /end /tn CapsWriterServer; schtasks /run /tn CapsWriterServer   # 重启
-Get-Content -Tail 20 -Encoding UTF8 C:\Users\qyqx1\CapsWriter-Offline\logs\server_latest.log
+Get-Content -Tail 20 -Encoding UTF8 %USERPROFILE%\CapsWriter-Offline\logs\server_latest.log
 ```
 
 ## 协议
