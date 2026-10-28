@@ -10,6 +10,7 @@ extension Notification.Name {
 /// 设置窗口要向主控要的东西
 protocol SettingsHost: AnyObject {
     var isConnected: Bool { get }
+    var needsLocalNetwork: Bool { get }
     var latency: Double? { get }
     func testConnection(_ done: @escaping (Double?) -> Void)
     /// 开始录新快捷键；没有辅助功能权限时返回 false
@@ -571,7 +572,9 @@ final class ConnPane: Pane {
             let ms = host.latency.map { "延迟 \(Int($0.rounded())) 毫秒 · " } ?? ""
             sub.stringValue = ms + "模型 Qwen3-ASR-1.7B · 显卡加速"
         } else {
-            sub.stringValue = "正在重试；看看 ITX 开着没有、网络通不通"
+            sub.stringValue = host.needsLocalNetwork
+                ? "要在「系统设置 › 隐私与安全性 › 本地网络」里打开 NB 输入法"
+                : "正在重试；看看 ITX 开着没有、网络通不通"
         }
     }
 }

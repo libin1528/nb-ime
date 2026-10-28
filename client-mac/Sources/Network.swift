@@ -9,6 +9,7 @@ final class Tunnel {
     private var proc: Process?
     private var stopped = false
     let s: Settings
+    var onExit: ((String) -> Void)?   // ssh 退出时的报错，主线程回调
 
     init(_ s: Settings) { self.s = s }
 
@@ -37,6 +38,7 @@ final class Tunnel {
         p.terminationHandler = { [weak self] pr in
             let msg = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             Log.w("隧道退出 code=\(pr.terminationStatus) \(msg.trimmingCharacters(in: .whitespacesAndNewlines))")
+            DispatchQueue.main.async { self?.onExit?(msg) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self?.start() }
         }
         do {

@@ -13,6 +13,7 @@
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
   <key>NSHumanReadableCopyright</key><string>Newbase Lab</string>
+  <key>NSLocalNetworkUsageDescription</key><string>识别服务跑在局域网里的 ITX 上，要连过去。</string>
   <key>NSMicrophoneUsageDescription</key><string>按住快捷键说话时录音，送到局域网里的 ITX 识别成文字。</string>
 </dict>
 </plist>

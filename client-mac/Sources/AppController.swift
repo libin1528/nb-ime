@@ -13,6 +13,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private var client: ASRClient!            // 完整识别
     private var preview: ASRClient!           // 流式预览
     private var connKey = ""
+    /// ssh 报 No route to host：多半是系统设置里没允许 NB 输入法访问本地网络
+    private var localNetworkBlocked = false
     private let recorder = Recorder()
     private var hotkey: Hotkey!
     private lazy var capsule = Capsule()
@@ -98,6 +100,11 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         tunnel = nil
         if !s.tunnelHost.isEmpty, !useExistingTunnel {
             let t = Tunnel(s)
+            t.onExit = { [weak self] msg in
+                guard let self else { return }
+                let blocked = msg.contains("No route to host")
+                if blocked != self.localNetworkBlocked { self.localNetworkBlocked = blocked; self.refreshStatus() }
+            }
             t.killStale()
             t.start()
             tunnel = t
@@ -105,6 +112,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         client = ASRClient(url: s.url, name: "完整")
         preview = ASRClient(url: s.url, name: "预览")
         client.onState = { [weak self] in
+            if self?.client.connected == true { self?.localNetworkBlocked = false }
             self?.refreshStatus()
             NotificationCenter.default.post(name: .connectionChanged, object: nil)
         }
@@ -434,6 +442,9 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         m.onReconnect = { [weak self] in self?.connect() }
         m.onSettings = { [weak self] in self?.settingsWindow.show() }
         m.onAccess = { [weak self] in self?.onboarding.show() }
+        m.onLocalNetwork = {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!)
+        }
         menuBar = m
         refreshStatus()
     }
@@ -441,7 +452,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private func refreshStatus() {
         guard let menuBar else { return }
         var st = MenuBar.State()
-        st.status = hotkey.paused ? .paused : !hotkey.installed ? .needsAccess : client.connected ? .ready : .offline
+        st.status = hotkey.paused ? .paused : !hotkey.installed ? .needsAccess : client.connected ? .ready
+            : localNetworkBlocked ? .noLocalNetwork : .offline
         st.recording = phase == .recording || phase == .finishing
         st.thinking = !releasedAt.isEmpty
         menuBar.update(st)
@@ -459,6 +471,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     // MARK: SettingsHost
 
     var isConnected: Bool { client?.connected ?? false }
+    var needsLocalNetwork: Bool { localNetworkBlocked }
     var latency: Double? { client?.latency }
     func testConnection(_ done: @escaping (Double?) -> Void) {
         guard client.connected else {

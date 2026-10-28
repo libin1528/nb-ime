@@ -7,6 +7,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     enum Status: Equatable {
         case ready              // 已连接，可以说
         case offline            // 连不上
+        case noLocalNetwork     // 连不上，因为没允许访问本地网络
         case needsAccess        // 没有辅助功能权限
         case paused
     }
@@ -21,6 +22,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     var onReconnect: (() -> Void)?
     var onSettings: (() -> Void)?
     var onAccess: (() -> Void)?
+    var onLocalNetwork: (() -> Void)?
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
@@ -87,6 +89,9 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
         switch state.status {
         case .offline:
+            menu.addItem(item("重新连接", "") { [weak self] in self?.onReconnect?() })
+        case .noLocalNetwork:
+            menu.addItem(item("打开本地网络权限…", "") { [weak self] in self?.onLocalNetwork?() })
             menu.addItem(item("重新连接", "") { [weak self] in self?.onReconnect?() })
         case .needsAccess:
             menu.addItem(item("打开辅助功能权限…", "") { [weak self] in self?.onAccess?() })
@@ -156,6 +161,7 @@ private final class MenuHeader: NSView {
             switch status {
             case .ready: return (UI.green, "已连接 ITX")
             case .offline: return (UI.orange, "连不上 ITX · 正在重试")
+            case .noLocalNetwork: return (UI.orange, "连不上 ITX · 本地网络没允许")
             case .needsAccess: return (UI.orange, "需要打开辅助功能权限")
             case .paused: return (.tertiaryLabelColor, "已暂停语音输入")
             }
