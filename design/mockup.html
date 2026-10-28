@@ -61,6 +61,22 @@ h2{font-size:19px;font-weight:650;margin:56px 0 6px}
 .spin{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;animation:rot .8s linear infinite}
 @keyframes rot{to{transform:rotate(360deg)}}
 
+/* ---------- 方案 A + 流式预览 ---------- */
+.px{position:absolute;left:50%;bottom:28px;transform:translateX(-50%);width:var(--w,250px);border-radius:22px;overflow:hidden;color:#fff;
+  background:rgba(28,28,30,.80);backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);
+  box-shadow:0 10px 30px rgba(0,0,0,.25),inset 0 0 0 .5px rgba(255,255,255,.14);transition:width .35s cubic-bezier(.3,.9,.3,1),border-radius .35s,opacity .3s,transform .3s}
+.px.open{border-radius:18px}
+.px.hidden{opacity:0;transform:translateX(-50%) translateY(8px) scale(.96)}
+.px-text{max-height:0;overflow:hidden;padding:0 18px;font-size:14px;line-height:22px;color:rgba(255,255,255,.95);display:flex;flex-direction:column;justify-content:flex-end;
+  transition:max-height .35s cubic-bezier(.3,.9,.3,1),padding .35s,color .3s}
+.px.open .px-text{max-height:82px;padding:14px 18px 2px}
+.px.long .px-text{-webkit-mask-image:linear-gradient(transparent 0,#000 26px);mask-image:linear-gradient(transparent 0,#000 26px)}
+.px.dim .px-text{color:rgba(255,255,255,.5)}
+.px-text .new{animation:fadein .5s ease-out}
+@keyframes fadein{from{opacity:.25}to{opacity:1}}
+.px-row{position:relative;height:44px;display:flex;align-items:center;gap:10px;padding:0 16px 0 8px;white-space:nowrap}
+.px-row .wave{flex:1}
+
 /* ---------- 方案 B：光球 ---------- */
 .orbbox{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;transition:opacity .3s,transform .3s}
 .orbbox.hidden{opacity:0;transform:translateX(-50%) scale(.9)}
@@ -263,6 +279,40 @@ h2{font-size:19px;font-weight:650;margin:56px 0 6px}
         <div class="editor"><div class="bar"><i></i><i></i><i></i></div><div class="txt">会议纪要：<span class="typed"></span><span class="caret" id="caretC"></span></div></div>
         <div class="bubble hidden" id="bubC"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ================= 2.1 流式预览 ================= -->
+  <h2>2.1 · A 加上流式预览 <span class="tag">v0.2 新增</span></h2>
+  <p class="sub">说话时胶囊向上展开成一块，实时显示识别到的文字：每 2 秒更新一次，比说话慢 1–1.5 秒。刚变的那几个字淡入，旧的保持不动；超过三行时只留最后三行，上沿渐隐。松开后用完整识别的结果粘贴（预览里的错字在这一步被修正），胶囊收回成「已输入 N 字」。</p>
+  <div class="controls" id="ctlS">
+    <button data-s="demo" class="on">自动演示</button>
+    <button data-s="start">刚开口（还没有预览）</button>
+    <button data-s="speak">说话中</button>
+    <button data-s="long">说了很久</button>
+    <button data-s="think">识别中</button>
+    <button data-s="done">已输入</button>
+  </div>
+  <div class="row2" style="grid-template-columns:1fr 340px">
+    <div class="stage">
+      <div class="desk" id="deskS" style="height:340px">
+        <div class="editor"><div class="bar"><i></i><i></i><i></i></div><div class="txt">会议纪要：<span class="typedS"></span><span class="caret"></span></div></div>
+        <div class="px" id="px">
+          <div class="px-text" id="pxText"></div>
+          <div class="px-row" id="pxRow"></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <b>细节</b>
+      <ul>
+        <li>开口后头 2 秒还没有预览，胶囊保持原样；第一段文字回来时才展开，不会空着一块。</li>
+        <li>展开后宽度固定（约 400 点），只往上长，底下那一行（波形 + 计时）位置不动，眼睛不用找。</li>
+        <li>服务端每次发回到目前为止的全文，整段替换；和上一次相同的开头不动，只有变了的部分淡入，看起来是「接着往下写」而不是闪一下。</li>
+        <li>松开后文字变暗、底部换成「识别中」；完整结果一到就粘贴、收回。预览里的错字（比如「休整」）不会进到输入框。</li>
+        <li>预览也带热词；短片段遇到静音会抄热词表，抄出来的那段直接不显示。</li>
+        <li>设置 › 通用里可以关掉预览，回到 v0.1 的小胶囊。</li>
+      </ul>
     </div>
   </div>
 
@@ -514,6 +564,67 @@ document.querySelectorAll('#ctl button').forEach(b=>b.onclick=()=>{
   demo=b.dataset.s==='demo'; if(demo){demoStart=performance.now();setState('listen')} else setState(b.dataset.s);
 });
 setState('listen'); loop();
+
+// 方案 A + 流式预览
+const PV=['我们这一轮把 NB 输入',
+  '我们这一轮把 NB 输入法做成正式产品，说话的',
+  '我们这一轮把 NB 输入法做成正式产品，说话的时候能实时看到文字，',
+  '我们这一轮把 NB 输入法做成正式产品，说话的时候能实时看到文字，松开以后再一次性休整',
+  '我们这一轮把 NB 输入法做成正式产品，说话的时候能实时看到文字，松开以后再一次性休整，这样等的时候心里有底'];
+const PV_LONG=PV[4]+'。还有一点，预览也要带热词，不然 ClawChat 会被听成 Clochat，小圆会变成小袁，看着很别扭，所以短片段也要过一遍抄热词的检测';
+const PV_FINAL='我们这一轮把 NB 输入法做成正式产品，说话的时候能实时看到文字，松开以后再一次性修正，这样等的时候心里有底。';
+const SDEMO=[['start',2300],['p0',2000],['p1',2000],['p2',2000],['p3',2000],['p4',600],['think',1000],['done',2400],['gone',900]];
+let sState='', sT0=performance.now(), sDemo=true, sDemoStart=performance.now(), sLevel=0, sHist=new Array(40).fill(0), sShown='';
+function sText(t){
+  const px=$('#px'), el=$('#pxText');
+  let i=0; while(i<t.length&&i<sShown.length&&t[i]===sShown[i]) i++;
+  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  el.innerHTML='<div>'+esc(t.slice(0,i))+(i<t.length?'<span class="new">'+esc(t.slice(i))+'</span>':'')+'</div>';
+  sShown=t;
+  px.classList.toggle('long', el.firstChild.offsetHeight>66);
+}
+function sSet(s, keepClock){
+  sState=s; if(!keepClock) sT0=performance.now();
+  const px=$('#px'), row=$('#pxRow');
+  px.classList.remove('hidden','dim');
+  const listen=s==='start'||s==='speak'||s==='long'||/^p\d/.test(s);
+  const text=s==='speak'?PV[2]:s==='long'?PV_LONG:/^p\d/.test(s)?PV[+s[1]]:s==='think'?sShown:'';
+  if(!/^p[1-9]/.test(s)&&s!=='think') sShown='';
+  if(listen){
+    if(!row.querySelector('.wave')) row.innerHTML='<div class="badge" style="background:var(--rec)"><div class="ring"></div><span style="color:#fff">'+MIC+'</span></div>'+waveHTML(40)+'<span class="time" id="st">0:00</span>';
+  }else if(s==='think'){
+    row.innerHTML='<div class="shimmer"></div><div class="badge" style="background:rgba(255,255,255,.12)"><div class="spin"></div></div><span class="msg">识别中</span><div class="dots"><i></i><i></i><i></i></div><span class="time" style="margin-left:auto">0:10</span>';
+    px.classList.add('dim');
+  }else if(s==='done'){
+    row.innerHTML='<div class="badge" style="background:var(--ok);color:#fff">'+CHECK+'</div><span class="msg">已输入<small>'+PV_FINAL.length+' 字</small></span>';
+    const e=$('.typedS'); e.textContent=''; typeInto(e,PV_FINAL);
+  }else if(s==='gone'){ px.classList.add('hidden'); $('.typedS').textContent=''; }
+  const open=!!text;
+  px.classList.toggle('open',open);
+  if(open) sText(text); else { $('#pxText').innerHTML=''; px.classList.remove('long'); }
+  px.style.setProperty('--w', open?'400px':s==='done'?'170px':'250px');
+}
+function sTick(){
+  if(sDemo){
+    let t=(performance.now()-sDemoStart)%SDEMO.reduce((a,b)=>a+b[1],0), acc=0;
+    for(const [s,d] of SDEMO){ if(t<acc+d){ if(s!==sState) sSet(s, sState!==''&&s[0]==='p'); break } acc+=d }
+  }
+  const listen=$('#pxRow .wave');
+  if(listen){
+    const el=performance.now()-sT0;
+    sLevel=sLevel*0.55+speechLevel(el/1000,false)*0.45; sHist.push(sLevel); sHist.shift();
+    const bars=$('#pxRow').querySelectorAll('.wave i');
+    bars.forEach((b,i)=>{const v=sHist[sHist.length-bars.length+i];b.style.height=(3+v*21)+'px';b.style.opacity=.55+v*.45});
+    const ring=$('#pxRow .ring'); if(ring){ring.style.transform='scale('+(1+sLevel*0.55)+')';ring.style.opacity=.15+sLevel*.6}
+    const st=$('#st'); if(st) st.textContent=fmt(sState==='speak'?6200:sState==='long'?24800:el);
+  }
+  requestAnimationFrame(sTick);
+}
+document.querySelectorAll('#ctlS button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#ctlS button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  sDemo=b.dataset.s==='demo'; sShown=''; if(sDemo){sDemoStart=performance.now();sState=''} else sSet(b.dataset.s);
+});
+sTick();
 
 // 菜单
 $('#toggleConn').onclick=()=>{const s=$('#menuStatus');s.classList.toggle('off');s.querySelector('span').textContent=s.classList.contains('off')?'连不上 ITX · 正在重试':'已连接 ITX'};
