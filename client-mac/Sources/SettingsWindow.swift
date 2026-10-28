@@ -251,105 +251,77 @@ final class HotkeyPane: Pane {
 
 // MARK: - 热词
 
-final class WordsPane: Pane {
-    private let flow = FlowView()
-    private let field = NSTextField()
+/// 一行一个词，像改文档一样直接改；停手半秒自动存
+final class WordsPane: Pane, NSTextViewDelegate {
+    private let text = NSTextView()
+    private let count = UI.label("", size: 12, color: .secondaryLabelColor)
+    private var saveWork: DispatchWorkItem?
 
     override func build() {
-        add(UI.wrapping("人名、产品名、专业词。识别时会优先往这些词上靠，比如加了「小圆」就不会再听成「小袁」。",
+        add(UI.wrapping("人名、产品名、专业词，一行一个。识别时会优先往这些词上靠，比如加了「小圆」就不会再听成「小袁」。",
                         size: 13, width: SettingsWindow.inner), after: 12)
-        field.placeholderString = "添加热词，回车确认"
-        field.bezelStyle = .roundedBezel
-        field.onAction { [weak self] _ in self?.addWord() }
-        let addButton = UI.button("添加") { [weak self] in self?.addWord() }
-        let input = UI.hstack([field, addButton], spacing: 8)
-        input.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 14, right: 14)
-        let group = GroupView([flow, input])
-        add(group, after: 10)
-        add(UI.footnote("热词只存在这台 Mac 上，团队里每个人各管各的。"))
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .bezelBorder
+        scroll.heightAnchor.constraint(equalToConstant: 290).isActive = true
+        text.font = .systemFont(ofSize: 14)
+        text.textContainerInset = NSSize(width: 6, height: 8)
+        text.isRichText = false
+        text.allowsUndo = true
+        text.isAutomaticQuoteSubstitutionEnabled = false
+        text.isAutomaticDashSubstitutionEnabled = false
+        text.isAutomaticTextReplacementEnabled = false
+        text.isAutomaticSpellingCorrectionEnabled = false
+        text.isContinuousSpellCheckingEnabled = false
+        let para = NSMutableParagraphStyle()
+        para.lineSpacing = 4
+        text.defaultParagraphStyle = para
+        text.typingAttributes[.paragraphStyle] = para
+        text.isVerticallyResizable = true
+        text.autoresizingMask = [.width]
+        text.textContainer?.widthTracksTextView = true
+        text.delegate = self
+        scroll.documentView = text
+        add(scroll, after: 8)
+        add(count)
         reload()
-        NotificationCenter.default.addObserver(forName: .hotwordsChanged, object: nil, queue: .main) { [weak self] _ in self?.reload() }
+        NotificationCenter.default.addObserver(forName: .hotwordsChanged, object: nil, queue: .main) { [weak self] _ in
+            guard let self, self.saveWork == nil else { return }   // 自己存的不用回填，免得光标跳
+            self.reload()
+        }
     }
 
     private func reload() {
-        flow.set(Settings.hotwordList().map { w in
-            Chip(w) { Settings.saveHotwords(Settings.hotwordList().filter { $0 != w }) }
-        })
+        let words = Settings.hotwordList()
+        text.string = words.joined(separator: "\n")
+        count.stringValue = "\(words.count) 个词 · 只存在这台 Mac 上，团队里每个人各管各的"
     }
 
-    private func addWord() {
-        let words = field.stringValue.split { "\n,，、".contains($0) }
-            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        field.stringValue = ""
-        var list = Settings.hotwordList()
-        for w in words where !list.contains(w) { list.append(w) }
-        Settings.saveHotwords(list)
-    }
-}
-
-/// 热词标签：白底胶囊 + ×
-final class Chip: NSView {
-    init(_ text: String, remove: @escaping () -> Void) {
-        super.init(frame: .zero)
-        let l = UI.label(text, size: 12.5)
-        let x = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "删除")!
-            .withSymbolConfiguration(.init(pointSize: 8, weight: .bold))!, target: nil, action: nil)
-        x.isBordered = false
-        x.contentTintColor = .tertiaryLabelColor
-        x.onAction { _ in remove() }
-        x.toolTip = "删除"
-        let h = UI.hstack([l, x], spacing: 6)
-        h.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 4, right: 8)
-        h.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(h)
-        NSLayoutConstraint.activate([
-            h.leadingAnchor.constraint(equalTo: leadingAnchor), h.trailingAnchor.constraint(equalTo: trailingAnchor),
-            h.topAnchor.constraint(equalTo: topAnchor), h.bottomAnchor.constraint(equalTo: bottomAnchor),
-            x.widthAnchor.constraint(equalToConstant: 16), x.heightAnchor.constraint(equalToConstant: 16),
-        ])
+    private func parsed() -> [String] {
+        var seen = Set<String>()
+        return text.string.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") && seen.insert($0).inserted }
     }
 
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func draw(_ dirty: NSRect) {
-        let p = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: bounds.height / 2, yRadius: bounds.height / 2)
-        UI.chipBG.setFill()
-        p.fill()
-        NSColor.separatorColor.setStroke()
-        p.lineWidth = 0.5
-        p.stroke()
-    }
-}
-
-/// 从左到右排、排满换行
-final class FlowView: NSView {
-    private var items: [NSView] = []
-    private lazy var heightC = heightAnchor.constraint(equalToConstant: 40)
-    let gap: CGFloat = 8, inset: CGFloat = 14
-
-    override var isFlipped: Bool { true }
-
-    func set(_ views: [NSView]) {
-        items.forEach { $0.removeFromSuperview() }
-        items = views
-        views.forEach(addSubview)
-        heightC.isActive = true
-        needsLayout = true
+    func textDidChange(_ n: Notification) {
+        saveWork?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.save() }
+        saveWork = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
     }
 
-    override func layout() {
-        super.layout()
-        var x = inset, y = inset, lineH: CGFloat = 0
-        let maxX = bounds.width - inset
-        for v in items {
-            let s = v.fittingSize
-            if x > inset, x + s.width > maxX { x = inset; y += lineH + gap; lineH = 0 }
-            v.frame = NSRect(x: x, y: y, width: s.width, height: s.height)
-            x += s.width + gap
-            lineH = max(lineH, s.height)
-        }
-        let h = items.isEmpty ? inset : y + lineH + inset
-        if abs(heightC.constant - h) > 0.5 { heightC.constant = h }
+    private func save() {
+        let words = parsed()
+        if words != Settings.hotwordList() { Settings.saveHotwords(words) }
+        saveWork = nil
+        count.stringValue = "\(words.count) 个词 · 只存在这台 Mac 上，团队里每个人各管各的"
+    }
+
+    override func viewWillDisappear() {
+        super.viewWillDisappear()
+        if saveWork != nil { saveWork?.cancel(); save() }
     }
 }
 
