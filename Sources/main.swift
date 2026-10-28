@@ -67,12 +67,21 @@ struct Settings {
             : URL(string: "ws://127.0.0.1:\(localPort)")!
     }
 
-    static func hotwords() -> String {
+    static func hotwordList() -> [String] {
         let text = (try? String(contentsOf: hotwordsURL, encoding: .utf8)) ?? ""
         return text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-            .joined(separator: "，")
+    }
+
+    /// 结果整句都由热词拼成（两个及以上）时返回这些词，否则 nil。
+    /// 录音里人声太弱时，模型会把热词提示原样抄出来，就是这个样子。
+    static func echoedHotwords(_ text: String, _ words: [String]) -> [String]? {
+        let canon = Dictionary(words.map { ($0.lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
+        let tokens = text.split { "，,、。.；;！!？? \n".contains($0) }.map { $0.lowercased() }
+        guard tokens.count >= 2 else { return nil }
+        let hits = tokens.compactMap { canon[$0] }
+        return hits.count == tokens.count ? hits : nil
     }
 }
 
@@ -379,6 +388,9 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var pending: [Float] = []
     private var sentSamples = 0
     private var discard = Set<String>()
+    private var taskAudio: [String: [Float]] = [:]
+    // 复核任务 id → 原任务、第一次抄出来的热词、原任务松开的时间
+    private var retryOf: [String: (orig: String, first: [String], started: Date?)] = [:]
     private var releasedAt: [String: Date] = [:]
     private var monitorsInstalled = false
     private let testFile: String? = {
@@ -623,6 +635,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         flush()
         send(data: "", final: true)
         releasedAt[id] = Date()
+        armTimeout(id)
         phase = .idle
         Log.w("送出 \(id.prefix(8)) 时长 \(String(format: "%.1f", Double(sentSamples) / 16000))s")
         if sentSamples < 16000 / 5 {
@@ -632,8 +645,13 @@ final class AppController: NSObject, NSApplicationDelegate {
             hud.show("识别中…")
         }
         refreshStatus()
+    }
+
+    private func armTimeout(_ id: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
             guard let self, self.releasedAt.removeValue(forKey: id) != nil, !self.discard.contains(id) else { return }
+            self.taskAudio[id] = nil
+            self.retryOf[id] = nil
             self.hud.show("识别超时", for: 1.5)
             self.refreshStatus()
         }
@@ -658,24 +676,55 @@ final class AppController: NSObject, NSApplicationDelegate {
         guard !pending.isEmpty else { return }
         let b64 = pending.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
         sentSamples += pending.count
+        taskAudio[taskId, default: []] += pending
         pending = []
         send(data: b64, final: false)
     }
 
     private func send(data: String, final: Bool) {
+        send(id: taskId, data: data, final: final, context: Settings.hotwordList().joined(separator: "，"))
+    }
+
+    private func send(id: String, data: String, final: Bool, context: String) {
         client.send([
-            "task_id": taskId, "source": "mic", "data": data, "is_final": final,
+            "task_id": id, "source": "mic", "data": data, "is_final": final,
             "time_start": startTime, "seg_duration": 60.0, "seg_overlap": 4.0,
-            "context": Settings.hotwords(), "language": s.language,
+            "context": context, "language": s.language,
         ])
+    }
+
+    /// 同一段录音换成倒序热词再认一次
+    private func recheck(_ id: String, first: [String], started: Date?, audio: [Float]) {
+        let rid = UUID().uuidString
+        retryOf[rid] = (id, first, started)
+        releasedAt[rid] = Date()
+        armTimeout(rid)
+        let b64 = audio.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
+        let ctx = Settings.hotwordList().reversed().joined(separator: "，")
+        send(id: rid, data: b64, final: false, context: ctx)
+        send(id: rid, data: "", final: true, context: ctx)
     }
 
     private func handleResult(_ id: String, _ final: Bool, _ raw: String) {
         guard final else { return }
-        let started = releasedAt.removeValue(forKey: id)
+        var started = releasedAt.removeValue(forKey: id)
+        let audio = taskAudio.removeValue(forKey: id)
         if discard.remove(id) != nil { return }
-        let ms = started.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let echo = Settings.echoedHotwords(text, Settings.hotwordList())
+        if let retry = retryOf.removeValue(forKey: id) {
+            // 两次都抄：开头一致说明真说了这个词，只留它；不一致就是凭空抄的
+            if let echo {
+                text = echo.first == retry.first.first ? echo[0] : ""
+            }
+            Log.w("复核 \(retry.orig.prefix(8))：第一次 \(retry.first)，倒序后「\(raw)」→「\(text)」")
+            started = retry.started
+        } else if let echo, let audio {
+            Log.w("结果 \(id.prefix(8)) 像是抄了热词表：\(raw)，换倒序热词复核")
+            recheck(id, first: echo, started: started, audio: audio)
+            return
+        }
+        let ms = started.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
         if s.stripShortTrailingPeriod, text.count <= 12, let last = text.last, "。.".contains(last) {
             text.removeLast()
         }
