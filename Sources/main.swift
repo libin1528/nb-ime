@@ -1,9 +1,10 @@
-// ITX 语音输入：按住右 Option 说话，松开后把录音送到 ITX 上的 CapsWriter 服务端识别，结果粘贴到当前输入框。
+// ITX 语音输入：按住快捷键（默认右 Option）说话，松开后把录音送到 ITX 上的 CapsWriter 服务端识别，结果粘贴到当前输入框。
 // 协议见 CapsWriter-Offline core/protocol.py：JSON 文本帧，音频是 16kHz 单声道 float32 的 base64。
 
 import AVFoundation
 import ApplicationServices
 import Cocoa
+import ServiceManagement
 
 // MARK: - 配置
 
@@ -370,6 +371,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let stateMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let lastMenuItem = NSMenuItem(title: "最近：—", action: nil, keyEquivalent: "")
+    private let loginMenuItem = NSMenuItem(title: "登录时自动启动", action: #selector(toggleLoginItem), keyEquivalent: "")
 
     private var phase = Phase.idle
     private var taskId = ""
@@ -418,6 +420,19 @@ final class AppController: NSObject, NSApplicationDelegate {
     private func waitForAccessibility(prompt: Bool) {
         let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
         if AXIsProcessTrustedWithOptions(opts) {
+            // 运行中途才拿到权限时，全局按键监听收不到事件，重启一次才生效
+            if !prompt {
+                Log.w("刚拿到辅助功能权限，重启自己")
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                p.arguments = ["-n", Bundle.main.bundlePath]
+                tunnel.stop()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    try? p.run()
+                    NSApp.terminate(nil)
+                }
+                return
+            }
             installMonitors()
         } else {
             refreshStatus()
@@ -425,31 +440,136 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
+    // 用事件钩子听键盘：修饰键当热键时原样放行，普通键当热键时吞掉，免得打出字来
+    private var eventTap: CFMachPort?
+    private var capturing = false        // 正在等用户按下新的快捷键
+    private var hotkeyHeld = false
+
     private func installMonitors() {
         guard !monitorsInstalled else { return }
+        let mask = (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
+        let me = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+            eventsOfInterest: CGEventMask(mask),
+            callback: { _, type, event, info in
+                let me = Unmanaged<AppController>.fromOpaque(info!).takeUnretainedValue()
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    Log.w("事件钩子被系统停用，重新打开")
+                    if let t = me.eventTap { CGEvent.tapEnable(tap: t, enable: true) }
+                    return Unmanaged.passUnretained(event)
+                }
+                return me.handleKey(type, event) ? nil : Unmanaged.passUnretained(event)
+            }, userInfo: me)
+        else {
+            Log.w("事件钩子建不起来，2 秒后重试")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.installMonitors() }
+            return
+        }
+        eventTap = tap
+        CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, tap, 0), .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
         monitorsInstalled = true
-        Log.w("辅助功能权限已有，开始监听热键")
-        NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] e in self?.handleKey(e) }
+        Log.w("辅助功能权限已有，开始监听热键（\(Self.keyName(s.hotkeyCode))）")
         refreshStatus()
     }
 
-    private static let deviceMasks: [UInt16: UInt] = [
+    // 修饰键：keyCode → 区分左右的设备位
+    private static let modifierMasks: [UInt16: UInt64] = [
         61: 0x40, 58: 0x20,       // 右 / 左 Option
         54: 0x10, 55: 0x08,       // 右 / 左 Command
         60: 0x04, 56: 0x02,       // 右 / 左 Shift
         62: 0x2000, 59: 0x01,     // 右 / 左 Control
+        63: 0x800000,             // Fn
     ]
 
-    private func handleKey(_ e: NSEvent) {
-        if e.type == .keyDown {
-            // 按住热键时又按了别的键 = 在用快捷键，不是在说话
-            if phase == .holding || phase == .recording { cancelRecording("组合键") }
+    static func keyName(_ code: UInt16) -> String {
+        let names: [UInt16: String] = [
+            61: "右 Option", 58: "左 Option", 54: "右 Command", 55: "左 Command",
+            60: "右 Shift", 56: "左 Shift", 62: "右 Control", 59: "左 Control", 63: "Fn",
+            122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8",
+            101: "F9", 109: "F10", 103: "F11", 111: "F12", 105: "F13", 107: "F14", 113: "F15",
+            106: "F16", 64: "F17", 79: "F18", 80: "F19", 49: "空格", 50: "`", 53: "Esc", 36: "回车", 48: "Tab",
+        ]
+        if let n = names[code] { return n }
+        // 其它键按当前键盘布局取字符
+        if let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true) {
+            var len = 0
+            var chars = [UniChar](repeating: 0, count: 4)
+            e.keyboardGetUnicodeString(maxStringLength: 4, actualStringLength: &len, unicodeString: &chars)
+            let s = String(utf16CodeUnits: chars, count: len).uppercased()
+            if !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return s }
+        }
+        return "键 \(code)"
+    }
+
+    /// 返回 true 表示吞掉这个事件
+    private func handleKey(_ type: CGEventType, _ event: CGEvent) -> Bool {
+        let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        let flags = event.flags.rawValue
+        if capturing { return captureKey(type, code, flags) }
+
+        if let mask = Self.modifierMasks[s.hotkeyCode] {
+            if type == .flagsChanged, code == s.hotkeyCode {
+                let down = flags & mask != 0
+                Log.w(down ? "热键按下" : "热键松开")
+                if down { hotkeyDown() } else { hotkeyUp() }
+            } else if type == .keyDown, phase == .holding || phase == .recording {
+                // 按住热键时又按了别的键 = 在用快捷键，不是在说话
+                cancelRecording("组合键")
+            }
+            return false
+        }
+
+        // 普通键当热键：只认不带修饰键的单按，按住期间的自动重复也吞掉
+        guard code == s.hotkeyCode, type == .keyDown || type == .keyUp else { return false }
+        let mods: UInt64 = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue
+            | CGEventFlags.maskControl.rawValue | CGEventFlags.maskShift.rawValue
+        if type == .keyDown {
+            if hotkeyHeld { return true }
+            guard flags & mods == 0 else { return false }
+            hotkeyHeld = true
+            Log.w("热键按下")
+            hotkeyDown()
+            return true
+        }
+        guard hotkeyHeld else { return false }
+        hotkeyHeld = false
+        Log.w("热键松开")
+        hotkeyUp()
+        return true
+    }
+
+    @objc private func startCapture() {
+        guard monitorsInstalled else {
+            hud.show("先打开辅助功能权限", for: 1.5)
             return
         }
-        guard e.keyCode == s.hotkeyCode else { return }
-        let mask = Self.deviceMasks[e.keyCode] ?? 0
-        let down = e.modifierFlags.rawValue & mask != 0
-        if down { hotkeyDown() } else { hotkeyUp() }
+        capturing = true
+        hud.show("按下想用的快捷键（Esc 取消）")
+    }
+
+    private func captureKey(_ type: CGEventType, _ code: UInt16, _ flags: UInt64) -> Bool {
+        switch type {
+        case .flagsChanged:
+            // 修饰键在按下那一刻记下
+            guard let mask = Self.modifierMasks[code], flags & mask != 0 else { return false }
+        case .keyDown:
+            if code == 53 {
+                capturing = false
+                hud.show("没改", for: 1)
+                return true
+            }
+        default:
+            return capturing
+        }
+        capturing = false
+        s.hotkeyCode = code
+        s.save()
+        Log.w("快捷键改成 \(Self.keyName(code))（keyCode=\(code)）")
+        hud.show("快捷键：按住 \(Self.keyName(code)) 说话", for: 2)
+        refreshStatus()
+        return type == .keyDown
     }
 
     private func hotkeyDown() {
@@ -622,10 +742,13 @@ final class AppController: NSObject, NSApplicationDelegate {
         menu.addItem(stateMenuItem)
         menu.addItem(lastMenuItem)
         menu.addItem(.separator())
+        menu.addItem(withTitle: "更换快捷键…", action: #selector(startCapture), keyEquivalent: "").target = self
         menu.addItem(withTitle: "编辑热词…", action: #selector(openHotwords), keyEquivalent: "").target = self
         menu.addItem(withTitle: "打开设置文件…", action: #selector(openConfig), keyEquivalent: "").target = self
         menu.addItem(withTitle: "打开日志", action: #selector(openLog), keyEquivalent: "").target = self
         menu.addItem(withTitle: "重新连接", action: #selector(reconnect), keyEquivalent: "").target = self
+        loginMenuItem.target = self
+        menu.addItem(loginMenuItem)
         menu.addItem(.separator())
         menu.addItem(withTitle: "退出 ITX 语音输入", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
@@ -639,19 +762,39 @@ final class AppController: NSObject, NSApplicationDelegate {
             if !client.connected { return ("mic.slash", nil, "没连上 ITX，正在重试…") }
             switch phase {
             case .recording, .finishing: return ("mic.fill", .systemRed, "正在听…")
-            default: return releasedAt.isEmpty ? ("mic", nil, "已连上 ITX · 按住右 Option 说话") : ("waveform", nil, "识别中…")
+            default: return releasedAt.isEmpty ? ("mic", nil, "已连上 ITX · 按住 \(Self.keyName(s.hotkeyCode)) 说话") : ("waveform", nil, "识别中…")
             }
         }()
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "ITX 语音输入")
         button.image?.isTemplate = tint == nil
         button.contentTintColor = tint
         stateMenuItem.title = title
+        loginMenuItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    }
+
+    @objc private func toggleLoginItem() {
+        Self.setLoginItem(SMAppService.mainApp.status != .enabled)
+        refreshStatus()
+    }
+
+    static func setLoginItem(_ on: Bool) {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            Log.w("登录项设置失败 \(error.localizedDescription)")
+        }
+        Log.w("登录项状态 \(SMAppService.mainApp.status.rawValue)")
     }
 
     @objc private func openHotwords() { NSWorkspace.shared.open(Settings.hotwordsURL) }
     @objc private func openConfig() { NSWorkspace.shared.open(Settings.configURL) }
     @objc private func openLog() { NSWorkspace.shared.open(Log.url) }
     @objc private func reconnect() { client.connect() }
+}
+
+if CommandLine.arguments.contains("--enable-login-item") {
+    AppController.setLoginItem(true)
+    exit(SMAppService.mainApp.status == .enabled ? 0 : 1)
 }
 
 let app = NSApplication.shared
