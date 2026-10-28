@@ -458,7 +458,9 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private func refreshStatus() {
         guard let menuBar else { return }
         var st = MenuBar.State()
-        st.status = hotkey.paused ? .paused : !hotkey.installed ? .needsAccess : client.connected ? .ready
+        // 截图用的那份不装热键（免得和正在用的那份抢），有权限就当装好了
+        let hotkeyReady = hotkey.installed || (demo != nil && AXIsProcessTrusted())
+        st.status = hotkey.paused ? .paused : !hotkeyReady ? .needsAccess : client.connected ? .ready
             : localNetworkBlocked ? .noLocalNetwork : .offline
         st.recording = phase == .recording || phase == .finishing
         st.thinking = !releasedAt.isEmpty
