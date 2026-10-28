@@ -178,13 +178,14 @@ final class Capsule {
 
 private final class CapsuleView: NSView {
     var mode = Capsule.Mode.listening { didSet { needsDisplay = true } }
-    var target: Float = 0 { didSet { if target > 0.25 { lastLoud = Date() } } }
+    // 「没听到声音」只在按下以后一直没出过人声时提示；说过话以后句间停顿不算
+    var target: Float = 0 { didSet { if target > 0.12 { heard = true } } }
     private var level: Float = 0
     private var hist = [Float](repeating: 0, count: 80)
     private var frame_ = 0
     private var start = Date()
     private var frozen: TimeInterval?
-    private var lastLoud = Date()
+    private var heard = false
     private var preview = ""
     private var newFrom = 0                  // 预览里从这个位置（UTF-16）往后是刚变的，淡入
     private var newAt = Date.distantPast
@@ -203,7 +204,7 @@ private final class CapsuleView: NSView {
 
     func reset() {
         start = Date()
-        lastLoud = Date()
+        heard = false
         frozen = nil
         level = 0
         target = 0
@@ -224,13 +225,14 @@ private final class CapsuleView: NSView {
         while i < old.length, i < new.length, old.character(at: i) == new.character(at: i) { i += 1 }
         if i < new.length { newFrom = i; newAt = Date() }
         preview = text
+        if !text.isEmpty { heard = true }
         needsDisplay = true
     }
 
     var expanded: Bool { !preview.isEmpty && (mode == .listening || mode == .thinking) }
     var radius: CGFloat { expanded ? 18 : 22 }
     private var elapsed: TimeInterval { frozen ?? Date().timeIntervalSince(start) }
-    private var quiet: Bool { mode == .listening && elapsed > 1.5 && Date().timeIntervalSince(lastLoud) > 1.5 }
+    private var quiet: Bool { mode == .listening && !heard && elapsed > 2 }
 
     func tick() {
         level = level * 0.55 + target * 0.45
