@@ -30,7 +30,9 @@ final class Tunnel {
         p.arguments = [
             "-N", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
             "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "-o", "ConnectTimeout=8",
-            "-L", "127.0.0.1:\(s.localPort):127.0.0.1:\(s.serverPort)", s.tunnelHost,
+            "-L", "127.0.0.1:\(s.localPort):127.0.0.1:\(s.serverPort)",
+            "-L", "127.0.0.1:\(s.polishLocalPort):127.0.0.1:\(s.polishPort)",   // 润色用的小模型
+            s.tunnelHost,
         ]
         let err = Pipe()
         p.standardError = err

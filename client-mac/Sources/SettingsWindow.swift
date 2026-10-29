@@ -1,4 +1,4 @@
-// 设置窗口：通用 / 快捷键 / 热词 / 历史 / 识别服务 / 关于（design/mockup.html 第 4 节）。
+// 设置窗口：通用 / 快捷键 / 热词 / 润色 / 历史 / 识别服务 / 关于（design/mockup.html 第 4 节；润色是后加的）。
 
 import Cocoa
 import ServiceManagement
@@ -29,7 +29,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     init(host: SettingsHost) { self.host = host }
 
-    enum Tab: Int { case general, hotkey, words, history, conn, about }
+    enum Tab: Int { case general, hotkey, words, polish, history, conn, about }
 
     func show(_ tab: Tab? = nil) {
         if window == nil { build() }
@@ -51,6 +51,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             ("通用", "gearshape", GeneralPane()),
             ("快捷键", "keyboard", HotkeyPane(host: host)),
             ("热词", "text.badge.star", WordsPane()),
+            ("润色", "wand.and.stars", PolishPane()),
             ("历史", "clock", HistoryPane()),
             ("识别服务", "desktopcomputer", ConnPane(host: host)),
             ("关于", "info.circle", AboutPane()),
@@ -374,6 +375,88 @@ final class WordsPane: Pane, NSTextViewDelegate {
     override func viewWillDisappear() {
         super.viewWillDisappear()
         if saveWork != nil { saveWork?.cancel(); save() }
+    }
+}
+
+// MARK: - 润色
+
+/// 识别后、输入前用小模型整理一遍：去掉口误、整理格式各三档。下面放一段例子，换档时跟着变
+final class PolishPane: Pane {
+    private let example = Polish.examples[1]
+    private let said = UI.label("", size: 13, color: .secondaryLabelColor)
+    private let typed = UI.label("", size: 13)
+    private let status = UI.label("", size: 12, color: .secondaryLabelColor)
+    private let dot = NSView()
+    private var cleanDetail: NSTextField?
+    private var formatDetail: NSTextField?
+
+    /// 每一档做什么，跟着选的档变
+    private static let cleanSays: [Polish.Level: String] = [
+        .off: "识别出什么就是什么", .mid: "删掉重复的、说错改口的、呃嗯这类语气词", .strong: "再删掉「那个」「就是说」这类口头禅",
+    ]
+    private static let formatSays: [Polish.Level: String] = [
+        .off: "标点、换行照原样", .mid: "补标点；说了第一、第二就列成清单，长的分段", .strong: "并列的几件事也列成清单，分段更勤",
+    ]
+
+    /// UI.row 里那行小字
+    private static func detailLabel(_ row: NSView) -> NSTextField? {
+        ((row as? NSStackView)?.arrangedSubviews.first as? NSStackView)?.arrangedSubviews.last as? NSTextField
+    }
+
+    override func build() {
+        add(UI.wrapping("松开以后、输入之前，用 ITX 上的小模型把识别出来的文字整理一遍。两件事分开管，各有三档。",
+                        size: 13, width: SettingsWindow.inner), after: 12)
+        let s = Settings.current
+        let levels = Polish.Level.allCases
+        let cleanRow = UI.row("去掉口误", " ", UI.segmented(levels.map(\.name), selected: levels.firstIndex(of: s.polishClean)!) { [weak self] i in
+            Settings.current.polishClean = levels[i]
+            self?.refresh()
+        })
+        let formatRow = UI.row("整理格式", " ", UI.segmented(levels.map(\.name), selected: levels.firstIndex(of: s.polishFormat)!) { [weak self] i in
+            Settings.current.polishFormat = levels[i]
+            self?.refresh()
+        })
+        cleanDetail = Self.detailLabel(cleanRow)
+        formatDetail = Self.detailLabel(formatRow)
+        add(GroupView([cleanRow, formatRow]))
+        add(UI.sectionTitle("比如这样说"), after: 6)
+        for l in [said, typed] {
+            l.maximumNumberOfLines = 0
+            l.lineBreakMode = .byWordWrapping
+            l.preferredMaxLayoutWidth = SettingsWindow.inner - 28
+        }
+        let arrow = UI.label("输入的是", size: 11, weight: .medium, color: .tertiaryLabelColor)
+        let card = UI.vstack([said, arrow, typed], spacing: 6)
+        card.setCustomSpacing(12, after: said)
+        card.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        add(GroupView([card]), after: 10)
+        dot.wantsLayer = true
+        dot.layer?.cornerRadius = 3.5
+        dot.widthAnchor.constraint(equalToConstant: 7).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 7).isActive = true
+        add(UI.pad(UI.hstack([dot, status], spacing: 6), NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 4)))
+        refresh()
+    }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        status.stringValue = "正在看整理服务在不在…"
+        dot.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
+        Polish.ping { [weak self] ok in
+            self?.status.stringValue = ok
+                ? "整理用 ITX 上的 Qwen3.5-4B，文字不出局域网。一般多等 1 秒以内，3 秒还没好就直接输入原文"
+                : "连不上 ITX 上的整理服务，先直接输入识别出来的原文"
+            self?.dot.layer?.backgroundColor = (ok ? UI.green : UI.orange).cgColor
+        }
+    }
+
+    private func refresh() {
+        let s = Settings.current
+        cleanDetail?.stringValue = Self.cleanSays[s.polishClean]!
+        formatDetail?.stringValue = Self.formatSays[s.polishFormat]!
+        said.stringValue = example.raw
+        typed.stringValue = s.polishClean == .off && s.polishFormat == .off
+            ? example.raw : example.out[s.polishClean.name + s.polishFormat.name]!.replacingOccurrences(of: "\n\n", with: "\n")
     }
 }
 

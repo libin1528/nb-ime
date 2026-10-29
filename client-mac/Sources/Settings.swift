@@ -22,6 +22,10 @@ struct Settings {
     var hudPosition = "bottom"       // bottom 屏幕底部 / caret 跟着光标
     var sounds = false               // 开始和结束时的提示音
     var streamPreview = true         // 说话时实时显示文字
+    var polishClean = Polish.Level.mid    // 识别后去掉口误：重复、改口、语气词
+    var polishFormat = Polish.Level.mid   // 识别后整理格式：标点、分段、列表
+    var polishPort = 6017            // ITX 上润色模型（llama-server）的端口
+    var polishLocalPort = 16017      // 隧道在本机的端口
     var onboarded = false            // 首次引导走完了
 
     /// 全局唯一的一份；改了就写回 config.json 并通知界面
@@ -76,6 +80,10 @@ struct Settings {
         if let v = j["hudPosition"] as? String { s.hudPosition = v }
         if let v = j["sounds"] as? Bool { s.sounds = v }
         if let v = j["streamPreview"] as? Bool { s.streamPreview = v }
+        if let v = j["polishClean"] as? String, let l = Polish.Level(rawValue: v) { s.polishClean = l }
+        if let v = j["polishFormat"] as? String, let l = Polish.Level(rawValue: v) { s.polishFormat = l }
+        if let v = j["polishPort"] as? Int { s.polishPort = v }
+        if let v = j["polishLocalPort"] as? Int { s.polishLocalPort = v }
         if let v = j["onboarded"] as? Bool { s.onboarded = v }
         return s
     }
@@ -87,6 +95,8 @@ struct Settings {
             "tailSeconds": tailSeconds, "language": language, "restoreClipboard": restoreClipboard,
             "stripShortTrailingPeriod": stripShortTrailingPeriod, "hudPosition": hudPosition,
             "sounds": sounds, "streamPreview": streamPreview, "onboarded": onboarded,
+            "polishClean": polishClean.rawValue, "polishFormat": polishFormat.rawValue,
+            "polishPort": polishPort, "polishLocalPort": polishLocalPort,
         ]
         if let hotkeyCode2 { j["hotkeyCode2"] = Int(hotkeyCode2) }
         if let d = try? JSONSerialization.data(withJSONObject: j, options: [.prettyPrinted, .sortedKeys]) {
@@ -104,7 +114,7 @@ struct Settings {
     }
 
     /// 连接相关的几项，变了才需要重连
-    var connectionKey: String { "\(tunnelHost)|\(serverHost)|\(serverPort)|\(localPort)" }
+    var connectionKey: String { "\(tunnelHost)|\(serverHost)|\(serverPort)|\(localPort)|\(polishPort)|\(polishLocalPort)" }
 
     // MARK: 热词
 

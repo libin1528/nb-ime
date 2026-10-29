@@ -35,6 +35,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     // 复核任务 id → 原任务、第一次抄出来的热词、原任务松开的时间
     private var retryOf: [String: (orig: String, first: [String], started: Date?)] = [:]
     private var releasedAt: [String: Date] = [:]
+    private var polishing = 0                     // 正在润色、还没粘贴的几句
 
     // 流式预览
     static let previewSeg = 2.0, previewOverlap = 0.5
@@ -46,6 +47,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private let args = CommandLine.arguments
     private lazy var testFile: String? = arg("--test-file")
     private lazy var demo: String? = arg("--demo")
+    private lazy var polishTest: String? = arg("--polish-test")
     private func arg(_ name: String) -> String? {
         guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
         return args[i + 1]
@@ -55,6 +57,10 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         let s = Settings.current
         hotkey = Hotkey(codes: s.hotkeyCodes)
         Log.w("启动 \(Bundle.main.bundleIdentifier ?? "") → \(s.url)，热键 \(Hotkey.describe(s.hotkeyCodes))")
+        if let polishTest {
+            runPolishTest(polishTest)
+            return
+        }
         connect()
         if let testFile {
             runFileTest(testFile)
@@ -411,15 +417,32 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         let meta = taskMeta.removeValue(forKey: id)
         let ms = started.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
-        if Settings.current.stripShortTrailingPeriod, text.count <= 12, let last = text.last, "。.".contains(last) {
-            text.removeLast()
-        }
-        let fixed = Hotfix.apply(text, Settings.hotwordList())
+        let hot = Settings.hotwordList()
+        let fixed = Hotfix.apply(text, hot)
         if fixed != text {
             Log.w("按读音换回热词：\(text) → \(fixed)")
             text = fixed
         }
         Log.w("结果 \(id.prefix(8)) 松开后 \(ms)ms：\(text)")
+        // 粘贴前交给小模型去口误、整理格式。热词先换好，模型照着热词表不动它们
+        let s = Settings.current
+        polishing += 1
+        refreshStatus()
+        let raw = text
+        Polish.run(raw, clean: s.polishClean, format: s.polishFormat, hotwords: hot) { [weak self] out, note in
+            guard let self else { return }
+            self.polishing -= 1
+            if note != "没开" { Log.w("润色 \(note)" + (out != raw ? "：\(out)" : "")) }
+            self.deliver(out, started: started, meta: meta)
+        }
+    }
+
+    private func deliver(_ result: String, started: Date?, meta: (seconds: Double, app: String)?) {
+        var text = result
+        if Settings.current.stripShortTrailingPeriod, text.count <= 12, let last = text.last, "。.".contains(last) {
+            text.removeLast()
+        }
+        let ms = started.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
         refreshStatus()
         if testFile != nil {
             print("RESULT \(ms)ms \(text)")
@@ -430,6 +453,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             capsule.show(.miss, for: 2.2)
             return
         }
+        Log.w("输入 松开后 \(ms)ms，\(text.count) 字")
         Paster.paste(text, restore: Settings.current.restoreClipboard)
         capsule.show(.done(text.count), for: 1.6)
         History.add(HistoryEntry(text: text, date: Date(), seconds: meta?.seconds ?? 0, app: meta?.app ?? ""))
@@ -466,7 +490,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         st.status = hotkey.paused ? .paused : !hotkeyReady ? .needsAccess : client.connected ? .ready
             : localNetworkBlocked ? .noLocalNetwork : .offline
         st.recording = phase == .recording || phase == .finishing
-        st.thinking = !releasedAt.isEmpty
+        st.thinking = !releasedAt.isEmpty || polishing > 0
         menuBar.update(st)
     }
 
@@ -542,6 +566,34 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         go()
         DispatchQueue.main.asyncAfter(deadline: .now() + 90) { print("超时"); exit(2) }
+    }
+
+    // MARK: 润色实测：--polish-test <文件>，一行一句，每句跑一遍各档组合，一行一个 JSON。
+    // 不开隧道，用已经开着的（客户端开着就有）
+
+    private func runPolishTest(_ path: String) {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { print("读不了 \(path)"); exit(1) }
+        let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
+        let levels: [Polish.Level] = [.off, .mid, .strong]
+        var combos = levels.flatMap { c in levels.map { (c, $0) } }.filter { $0.0 != .off || $0.1 != .off }
+        if let only = arg("--levels") {   // 比如 --levels 中中,强强
+            combos = combos.filter { only.contains($0.0.name + $0.1.name) }
+        }
+        // 同一组合的连着跑，前缀缓存用得上（实际使用时设置不变，也是这样）
+        var jobs = combos.flatMap { c in lines.map { (c, $0) } }
+        func next() {
+            guard !jobs.isEmpty else { exit(0) }
+            let ((c, f), line) = jobs.removeFirst()
+            let t = Date()
+            Polish.run(line, clean: c, format: f, hotwords: Settings.hotwordList()) { out, note in
+                let row: [String: Any] = ["clean": c.name, "format": f.name, "raw": line, "out": out, "note": note,
+                                          "sec": (Date().timeIntervalSince(t) * 100).rounded() / 100]
+                if let d = try? JSONSerialization.data(withJSONObject: row), let s = String(data: d, encoding: .utf8) { print(s) }
+                fflush(stdout)
+                next()
+            }
+        }
+        next()
     }
 
     // MARK: 截图用：--demo <界面>

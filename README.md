@@ -25,6 +25,7 @@
 - **全局快捷键**（`Hotkey.swift`）：用 CGEventTap 听键盘和鼠标，单按修饰键、F 键、鼠标侧键都能当快捷键，可以同时设两个。
 - **流式预览**（`AppController.swift`）：同一段录音走两条 WebSocket 连接，一条每 2 秒出一次预览，一条松开后出完整结果。
 - **热词按读音换写法**（`Hotfix.swift`）：模型写成「万三」，读音和热词「Wan3」一样就换回来。
+- **识别后润色**（`Polish.swift`）：松开后、输入前用同一台机器上的小模型（Qwen3.5-4B）整理一遍：去掉口误、整理格式各有 关 / 中 / 强。小模型偶尔会乱改，结果要过一遍「只删不加、热词都在」的检查，不过关就输入原文。
 
 觉得哪部分有用，拿去改就好，不用打招呼。
 
@@ -38,7 +39,7 @@
 
 ## 如果你还是想跑起来
 
-1. **服务端**：在一台有显卡的机器上装 CapsWriter-Offline 和 Qwen3-ASR 模型，见 [`server/README.md`](server/README.md)（我们的是 Windows）。
+1. **服务端**：在一台有显卡的机器上装 CapsWriter-Offline 和 Qwen3-ASR 模型，见 [`server/README.md`](server/README.md)（我们的是 Windows）。识别后润色要再跑一个 Qwen3.5-4B，同一份说明里有；不跑也行，到「设置 › 润色」里两项都关掉。
 2. **客户端**：需要 macOS 26 和 Xcode 命令行工具。
    ```bash
    cd client-mac && ./build.sh
@@ -60,8 +61,9 @@
 
 调试：
 - `NBIME --test-file <音频>`：不用麦克风，按实时节奏走一遍同样的发送路径（含流式预览），打印 `PREVIEW` / `RESULT`。
-- `NBIME --demo <界面>`：截图用，`listen` `quiet` `preview` `long` `think` `done` `miss` `offline` `morph`（录变形用的一整套）`menu` `onboarding` `settings:0`…`settings:5`。
-- 这两种模式会借用已经开着的隧道，不动它。
+- `NBIME --demo <界面>`：截图用，`listen` `quiet` `preview` `long` `think` `done` `miss` `offline` `morph`（录变形用的一整套）`menu` `onboarding` `settings:0`…`settings:6`。
+- `NBIME --polish-test <文件>`：文件里一行一句，每句按润色的 8 种档位组合各跑一遍，一行一个 JSON（`--levels 中中,强强` 只跑这几种）。改提示词前后都跑一遍对比，对照页 `design/polish/samples.html` 就是它的结果。
+- 这几种模式会借用已经开着的隧道，不动它。
 
 ## 用到的开源项目
 
@@ -69,6 +71,8 @@
 |---|---|---|
 | [CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline) | 识别服务端，客户端按它的 WebSocket 协议通信 | MIT |
 | [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) | 语音识别模型（1.7B，q5_k 量化版随 CapsWriter 的模型包发布） | Apache-2.0 |
+| [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) | 识别后润色的小模型（用 [unsloth](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) 的 Q8_0 量化） | Apache-2.0 |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | 跑润色模型的 `llama-server`（用 CapsWriter 自带的 Vulkan 版） | MIT |
 | [websockets](https://github.com/python-websockets/websockets)、[NumPy](https://github.com/numpy/numpy) | `tools/` 里的调试脚本 | BSD-3-Clause |
 
 这些都没有打包进本仓库，要用的话按各自的协议去原项目下载。设计上参考了 Apple 的 Liquid Glass 和微信输入法的菜单。
