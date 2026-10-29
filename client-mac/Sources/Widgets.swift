@@ -143,7 +143,8 @@ final class GroupView: NSView {
         p.stroke()
         NSColor.separatorColor.setFill()
         for v in stack.arrangedSubviews.dropFirst() where !v.isHidden {
-            NSRect(x: 14, y: v.frame.minY, width: bounds.width - 28, height: 1 / (window?.backingScaleFactor ?? 2)).fill()
+            // 行的 frame 是 stack 里的坐标（不是翻转的），换到这里再取上沿
+            NSRect(x: 14, y: convert(v.frame, from: stack).minY, width: bounds.width - 28, height: 1 / (window?.backingScaleFactor ?? 2)).fill()
         }
     }
 

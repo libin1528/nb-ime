@@ -131,6 +131,15 @@ enum Polish {
         return kept
     }
 
+    /// 原文每个字留没留下（标点、空白算留下）。设置页的例子拿它把删掉的字划掉
+    static func keptMask(raw: String, out: String) -> [Bool] {
+        let chars = Array(raw)
+        let idx = chars.indices.filter { content(String(chars[$0])).count == 1 }
+        let kept = Set(align(idx.map { content(String(chars[$0]))[0] }, content(out)).map { idx[$0] })
+        let counted = Set(idx)
+        return chars.indices.map { kept.contains($0) || !counted.contains($0) }
+    }
+
     /// 原文里连着被删掉的几段
     private static func deletedRuns(_ a: [Character], _ kept: [Int]) -> [Range<Int>] {
         var runs: [Range<Int>] = [], start = 0

@@ -380,11 +380,11 @@ final class WordsPane: Pane, NSTextViewDelegate {
 
 // MARK: - 润色
 
-/// 识别后、输入前用小模型整理一遍：去掉口误、整理格式各三档。下面放一段例子，换档时跟着变
+/// 识别后、输入前用小模型整理一遍：去掉口误、整理格式各三档。下面一段例子跟着档位变：「说的」里删掉的字划掉，「输入」是整理后的样子
 final class PolishPane: Pane {
     private let example = Polish.examples[1]
-    private let said = UI.label("", size: 13, color: .secondaryLabelColor)
-    private let typed = UI.label("", size: 13)
+    private let said = PolishPane.text()
+    private let typed = PolishPane.text()
     private let status = UI.label("", size: 12, color: .secondaryLabelColor)
     private let dot = NSView()
     private var cleanDetail: NSTextField?
@@ -403,9 +403,27 @@ final class PolishPane: Pane {
         ((row as? NSStackView)?.arrangedSubviews.first as? NSStackView)?.arrangedSubviews.last as? NSTextField
     }
 
+    /// 例子里的一段文字，能折行
+    private static func text() -> NSTextField {
+        let l = UI.wrapping("", size: 13, width: SettingsWindow.inner - 28 - 44)
+        l.maximumNumberOfLines = 0
+        return l
+    }
+
+    /// 例子的一行：左边一列小标题，右边文字
+    private static func pair(_ title: String, _ text: NSTextField) -> NSView {
+        let t = UI.label(title, size: 12, color: .tertiaryLabelColor)
+        t.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        let h = NSStackView(views: [t, text])
+        h.alignment = .top
+        h.spacing = 12
+        h.edgeInsets = NSEdgeInsets(top: 11, left: 14, bottom: 11, right: 14)
+        // 横排的 stack 不会按折行后的文字撑高，自己补上
+        h.heightAnchor.constraint(greaterThanOrEqualTo: text.heightAnchor, constant: 22).isActive = true
+        return h
+    }
+
     override func build() {
-        add(UI.wrapping("松开以后、输入之前，用 ITX 上的小模型把识别出来的文字整理一遍。两件事分开管，各有三档。",
-                        size: 13, width: SettingsWindow.inner), after: 12)
         let s = Settings.current
         let levels = Polish.Level.allCases
         let cleanRow = UI.row("去掉口误", " ", UI.segmented(levels.map(\.name), selected: levels.firstIndex(of: s.polishClean)!) { [weak self] i in
@@ -419,17 +437,8 @@ final class PolishPane: Pane {
         cleanDetail = Self.detailLabel(cleanRow)
         formatDetail = Self.detailLabel(formatRow)
         add(GroupView([cleanRow, formatRow]))
-        add(UI.sectionTitle("比如这样说"), after: 6)
-        for l in [said, typed] {
-            l.maximumNumberOfLines = 0
-            l.lineBreakMode = .byWordWrapping
-            l.preferredMaxLayoutWidth = SettingsWindow.inner - 28
-        }
-        let arrow = UI.label("输入的是", size: 11, weight: .medium, color: .tertiaryLabelColor)
-        let card = UI.vstack([said, arrow, typed], spacing: 6)
-        card.setCustomSpacing(12, after: said)
-        card.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
-        add(GroupView([card]), after: 10)
+        add(UI.sectionTitle("效果预览"), after: 6)
+        add(GroupView([Self.pair("说的", said), Self.pair("输入", typed)]), after: 10)
         dot.wantsLayer = true
         dot.layer?.cornerRadius = 3.5
         dot.widthAnchor.constraint(equalToConstant: 7).isActive = true
@@ -440,12 +449,12 @@ final class PolishPane: Pane {
 
     override func viewWillAppear() {
         super.viewWillAppear()
-        status.stringValue = "正在看整理服务在不在…"
+        status.stringValue = "正在连整理模型…"
         dot.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
         Polish.ping { [weak self] ok in
             self?.status.stringValue = ok
-                ? "整理用 ITX 上的 Qwen3.5-4B，文字不出局域网。一般多等 1 秒以内，3 秒还没好就直接输入原文"
-                : "连不上 ITX 上的整理服务，先直接输入识别出来的原文"
+                ? "整理模型跑在 ITX 上，文字不出局域网；3 秒没整理好就输入原文"
+                : "连不上 ITX 上的整理模型，先直接输入原文"
             self?.dot.layer?.backgroundColor = (ok ? UI.green : UI.orange).cgColor
         }
     }
@@ -454,9 +463,18 @@ final class PolishPane: Pane {
         let s = Settings.current
         cleanDetail?.stringValue = Self.cleanSays[s.polishClean]!
         formatDetail?.stringValue = Self.formatSays[s.polishFormat]!
-        said.stringValue = example.raw
-        typed.stringValue = s.polishClean == .off && s.polishFormat == .off
+        let out = s.polishClean == .off && s.polishFormat == .off
             ? example.raw : example.out[s.polishClean.name + s.polishFormat.name]!.replacingOccurrences(of: "\n\n", with: "\n")
+        let font = NSFont.systemFont(ofSize: 13)
+        typed.attributedStringValue = NSAttributedString(string: out, attributes: [.font: font, .foregroundColor: NSColor.labelColor])
+        let marked = NSMutableAttributedString()
+        for (c, kept) in zip(example.raw, Polish.keptMask(raw: example.raw, out: out)) {
+            marked.append(NSAttributedString(string: String(c), attributes: kept
+                ? [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+                : [.font: font, .foregroundColor: NSColor.tertiaryLabelColor,
+                   .strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: NSColor.tertiaryLabelColor]))
+        }
+        said.attributedStringValue = marked
     }
 }
 
