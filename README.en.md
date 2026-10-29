@@ -37,6 +37,15 @@ NB has two goals, in this order:
 
 So please treat it as reference material, not as software.
 
+## Why not use a free voice input app?
+
+Free voice input apps are already good. I built my own anyway, for two reasons:
+
+- **Privacy.** Audio and text stay on my home network and are never uploaded to anyone's server.
+- **In my working environment, a self-hosted service is clearly better and more stable.** Recognition runs on a GPU machine that serves only me: no queues, no rate limits, no internet hiccups. The full result arrives about 0.8 s after release, and polish adds 0.6 s on average. The hotword list holds the names from my own projects, and the hotkeys and polish strength are tuned to my habits.
+
+An online product serves millions of people, so it has to balance scale, cost and experience, and design for the average user. NB doesn't have to make that trade-off: it serves one person, so every choice comes down to whether it feels right to me.
+
 ## Use it as context
 
 The easiest way: clone it, open your AI coding tool, and say something like:
