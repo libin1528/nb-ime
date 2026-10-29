@@ -43,6 +43,9 @@ final class Recorder {
         running = false
     }
 
+    /// 系统默认的输入设备，AVAudioEngine 录的就是它
+    static var deviceName: String { AVCaptureDevice.default(for: .audio)?.localizedName ?? "麦克风" }
+
     /// 一段采样的音量，映射到 0…1（-55 dB 以下算 0，-15 dB 以上算 1）
     static func level(_ samples: [Float]) -> Float {
         guard !samples.isEmpty else { return 0 }

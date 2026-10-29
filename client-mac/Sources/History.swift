@@ -1,4 +1,4 @@
-// 识别历史：本地存最近 200 条（文字、时间、时长、当时的前台应用）。
+// 识别历史：本地存最近 200 条（文字、时间、时长、当时的前台应用、录音文件名）。录音只留最近 20 段，见 Recordings。
 
 import Foundation
 
@@ -11,6 +11,7 @@ struct HistoryEntry {
     var date: Date
     var seconds: Double
     var app: String
+    var audio: String? = nil
 }
 
 enum History {
@@ -29,7 +30,7 @@ enum History {
         return arr.compactMap { j in
             guard let text = j["text"] as? String, let t = j["time"] as? Double else { return nil }
             return HistoryEntry(text: text, date: Date(timeIntervalSince1970: t),
-                                seconds: j["seconds"] as? Double ?? 0, app: j["app"] as? String ?? "")
+                                seconds: j["seconds"] as? Double ?? 0, app: j["app"] as? String ?? "", audio: j["audio"] as? String)
         }
     }
 
@@ -65,7 +66,9 @@ enum History {
 
     private static func write(_ items: [HistoryEntry]) {
         let arr: [[String: Any]] = items.map {
-            ["text": $0.text, "time": $0.date.timeIntervalSince1970, "seconds": $0.seconds, "app": $0.app]
+            var j: [String: Any] = ["text": $0.text, "time": $0.date.timeIntervalSince1970, "seconds": $0.seconds, "app": $0.app]
+            j["audio"] = $0.audio
+            return j
         }
         if let d = try? JSONSerialization.data(withJSONObject: arr, options: [.prettyPrinted]) {
             try? d.write(to: url, options: .atomic)

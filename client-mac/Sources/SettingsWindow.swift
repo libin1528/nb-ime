@@ -517,7 +517,7 @@ final class HistoryPane: Pane, NSTableViewDataSource, NSTableViewDelegate {
         empty.centerXAnchor.constraint(equalTo: group.centerXAnchor).isActive = true
         empty.centerYAnchor.constraint(equalTo: group.centerYAnchor).isActive = true
         add(group, after: 10)
-        add(UI.footnote("保留最近 \(History.limit) 条，只存在这台 Mac 上。"))
+        add(UI.footnote("保留最近 \(History.limit) 条，最近 \(Recordings.limit) 条可以回听录音。都只存在这台 Mac 上。"))
         reload()
         NotificationCenter.default.addObserver(forName: .historyChanged, object: nil, queue: .main) { [weak self] _ in self?.reload() }
     }
@@ -555,21 +555,37 @@ final class HistoryPane: Pane, NSTableViewDataSource, NSTableViewDelegate {
 }
 
 private final class HistoryCell: NSTableCellView {
-    let copyButton: NSButton
+    /// 鼠标移上去才露出来的按钮：回听（录音还在的话）、复制
+    let buttons: [NSButton]
+    private static var player: (name: String, sound: NSSound)?
 
     init(_ e: HistoryEntry, width: CGFloat) {
-        copyButton = UI.button("复制") { Paster.copy(e.text) }
+        var bs = [UI.button("复制") { Paster.copy(e.text) }]
+        if let name = e.audio, FileManager.default.fileExists(atPath: Recordings.url(name).path) {
+            bs.insert(UI.button("回听") {
+                // 正在放的这段再点一下就停
+                let stopOnly = Self.player?.name == name && Self.player?.sound.isPlaying == true
+                Self.player?.sound.stop()
+                Self.player = nil
+                guard !stopOnly, let s = NSSound(contentsOf: Recordings.url(name), byReference: true) else { return }
+                Self.player = (name, s)
+                s.play()
+            }, at: 0)
+        }
+        buttons = bs
         super.init(frame: .zero)
-        let text = UI.wrapping(e.text, size: 13, color: .labelColor, width: width - 120)
+        let text = UI.wrapping(e.text, size: 13, color: .labelColor, width: width - 180)
         text.isSelectable = true
         var meta = History.when(e.date) + " · " + String(format: "%.1f 秒", e.seconds)
         if !e.app.isEmpty { meta += " · " + e.app }
         let left = UI.vstack([text, UI.label(meta, size: 11, color: .tertiaryLabelColor)], spacing: 2)
-        copyButton.controlSize = .small
-        copyButton.alphaValue = 0
+        for b in buttons {
+            b.controlSize = .small
+            b.alphaValue = 0
+        }
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let h = NSStackView(views: [left, spacer, copyButton])
+        let h = NSStackView(views: [left, spacer] + buttons)
         h.alignment = .top
         h.edgeInsets = NSEdgeInsets(top: 9, left: 14, bottom: 9, right: 14)
         h.translatesAutoresizingMaskIntoConstraints = false
@@ -583,7 +599,7 @@ private final class HistoryCell: NSTableCellView {
     required init?(coder: NSCoder) { fatalError() }
 }
 
-/// 鼠标移上去才露出「复制」；行与行之间一条细线
+/// 鼠标移上去才露出「回听」「复制」；行与行之间一条细线
 private final class HistoryRowView: NSTableRowView {
     var last = false
 
@@ -594,8 +610,8 @@ private final class HistoryRowView: NSTableRowView {
     }
 
     private var cell: HistoryCell? { subviews.compactMap { $0 as? HistoryCell }.first }
-    override func mouseEntered(with event: NSEvent) { cell?.copyButton.animator().alphaValue = 1 }
-    override func mouseExited(with event: NSEvent) { cell?.copyButton.animator().alphaValue = 0 }
+    override func mouseEntered(with event: NSEvent) { cell?.buttons.forEach { $0.animator().alphaValue = 1 } }
+    override func mouseExited(with event: NSEvent) { cell?.buttons.forEach { $0.animator().alphaValue = 0 } }
 
     override func drawBackground(in dirtyRect: NSRect) {
         guard !last else { return }

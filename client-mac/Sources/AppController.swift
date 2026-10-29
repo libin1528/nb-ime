@@ -31,7 +31,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private var frontApp = ""
     private var discard = Set<String>()
     private var taskAudio: [String: [Float]] = [:]
-    private var taskMeta: [String: (seconds: Double, app: String)] = [:]
+    private var taskMeta: [String: Meta] = [:]
+    private typealias Meta = (seconds: Double, app: String, audio: String?)   // audio：存下来的录音文件名
     // 复核任务 id → 原任务、第一次抄出来的热词、原任务松开的时间
     private var retryOf: [String: (orig: String, first: [String], started: Date?)] = [:]
     private var releasedAt: [String: Date] = [:]
@@ -253,13 +254,26 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         // 松开后预览就不再喂了；它的结尾等完整结果回来再发，免得服务端先去算预览、完整结果排在后面
         holdPreview()
         flush()
+        phase = .idle
+        let audio = (taskAudio[id] ?? []) + pending
+        pending = []
+        let secs = Double(audio.count) / 16000
+        let mic = Recorder.deviceName
+        let file = testFile == nil ? Recordings.save(audio, id: id) : nil
+        guard sentSamples > 0 else {
+            // 从头到尾没声音（无线麦的发射器没开、休眠、离太远都会这样）：一个字节都没送，送了模型也只会抄热词表
+            previewToClose = nil
+            Log.w("没声音 \(id.prefix(8)) 时长 \(String(format: "%.1f", secs))s 麦克风 \(mic)，不送去识别")
+            if testFile != nil { print("RESULT 没声音"); NSApp.terminate(nil) }
+            if secs >= 0.2 { capsule.show(.note("mic.slash", "没听到声音 · \(mic)"), for: 2.6) } else { capsule.hide() }
+            refreshStatus()
+            return
+        }
         send(data: "", final: true)
         releasedAt[id] = Date()
         armTimeout(id)
-        phase = .idle
-        let secs = Double(sentSamples) / 16000
-        taskMeta[id] = (secs, frontApp)
-        Log.w("送出 \(id.prefix(8)) 时长 \(String(format: "%.1f", secs))s 音量峰值 \(String(format: "%.2f", peakLevel))")
+        taskMeta[id] = (secs, frontApp, file)
+        Log.w("送出 \(id.prefix(8)) 时长 \(String(format: "%.1f", secs))s 音量峰值 \(String(format: "%.2f", peakLevel)) 麦克风 \(mic)")
         if sentSamples < 16000 / 5 {
             discard.insert(id)
             capsule.hide()
@@ -302,8 +316,9 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         if phase != .holding, pending.count >= 1600 { flush() }
     }
 
+    /// 送一批音频去识别。一直没声音就先攒着不送，有声音了连前面的一起补上
     private func flush() {
-        guard !pending.isEmpty else { return }
+        guard !pending.isEmpty, peakLevel > 0 else { return }
         let b64 = pending.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
         sentSamples += pending.count
         taskAudio[taskId, default: []] += pending
@@ -437,7 +452,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
     }
 
-    private func deliver(_ result: String, started: Date?, meta: (seconds: Double, app: String)?) {
+    private func deliver(_ result: String, started: Date?, meta: Meta?) {
         var text = result
         if Settings.current.stripShortTrailingPeriod, text.count <= 12, let last = text.last, "。.".contains(last) {
             text.removeLast()
@@ -456,7 +471,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         Log.w("输入 松开后 \(ms)ms，\(text.count) 字")
         Paster.paste(text, restore: Settings.current.restoreClipboard)
         capsule.show(.done(text.count), for: 1.6)
-        History.add(HistoryEntry(text: text, date: Date(), seconds: meta?.seconds ?? 0, app: meta?.app ?? ""))
+        History.add(HistoryEntry(text: text, date: Date(), seconds: meta?.seconds ?? 0, app: meta?.app ?? "", audio: meta?.audio))
         onboarding.heard(text)
         refreshStatus()
     }
@@ -617,6 +632,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         case "done": capsule.show(.done(55), for: 600)
         case "miss": capsule.show(.miss, for: 600)
         case "offline": capsule.show(.offline, for: 600)
+        case "nosound": capsule.show(.note("mic.slash", "没听到声音 · \(Recorder.deviceName)"), for: 600)
         case "morph":
             // 录屏看变形：长出来 → 展开 → 识别中 → 已输入 → 缩回去
             capsule.showListening(); wobble()
