@@ -14,7 +14,7 @@
 
 对 `config_server.py` 的改动只有两处：`addr = '127.0.0.1'`、`enable_tray = False`。
 
-识别的解码温度保持 CapsWriter 默认的 `0.4`（`core\server\engines\qwen_asr_gguf\asr_engine.py` 里 `decode_stream` 的默认值）。2026-10-29 试过改成 `0.0`（greedy）：同一段录音每次结果一样了（20 段录音各识别 3 次，改前 12 段三次一样、改后 20 段都一样），但模型容易陷进重复循环，同一句话一直生成到 512 个 token 的上限，2 秒的音频要 10–90 秒才出结果（改后半小时里 4 次，改前 700 次里一次都没有）。0.4 的随机采样正好能把循环打断，所以当天就改回去了。备份 `asr_engine.py.bak-20261029` 就是原样。以后要再试 greedy，得同时按音频长度限制最多生成多少 token。
+识别的解码温度保持 CapsWriter 默认的 `0.4`（`core\server\engines\qwen_asr_gguf\asr_engine.py` 里 `decode_stream` 的默认值）。2026-10-29 试过改成 `0.0`（greedy）：同一段录音每次结果一样了（20 段录音各识别 3 次，改前 12 段三次一样、改后 20 段都一样），但随后出现 2 秒的音频要 10–90 秒才出结果，当时判断是 greedy 陷进重复循环，当天就改回去了。后来发现那段时间 ITX 上有重启留下的孤儿识别进程在占显存（见下面「常用操作」），慢的原因也可能是显存不够，温度 0 要在干净的环境里重测。备份 `asr_engine.py.bak-20261029` 就是原样。
 
 ## 从零部署
 
@@ -29,7 +29,9 @@
 ## 常用操作
 
 ```powershell
-schtasks /end /tn CapsWriterServer; schtasks /run /tn CapsWriterServer   # 重启
+# 重启。schtasks /end 只结束主进程，识别子进程会留下来继续占着约 1.8GB 显存，所以要把 start_server 全部结束再启动
+schtasks /end /tn CapsWriterServer; Get-Process start_server -ErrorAction SilentlyContinue | Stop-Process -Force; schtasks /run /tn CapsWriterServer
+Get-Process start_server   # 正常是 3 个：主进程加两个子进程。多了就是之前留下的孤儿进程
 Get-Content -Tail 20 -Encoding UTF8 %USERPROFILE%\CapsWriter-Offline\logs\server_latest.log
 ```
 
