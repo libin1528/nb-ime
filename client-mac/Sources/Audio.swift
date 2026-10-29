@@ -12,19 +12,25 @@ final class Recorder {
     private(set) var running = false
     var onSamples: (([Float]) -> Void)?
 
-    func start() throws {
-        // AVAudioEngine 只认建它时的设备，系统换了默认麦克风也不跟。每次录音前对一下，换了就重建一个，显式指定设备
+    /// AVAudioEngine 只认建它时的设备，系统换了默认麦克风也不跟。对一下现在该用哪个，换了就重建一个，显式指定设备。
+    /// 建引擎要一两秒（无线麦尤其慢），启动时和设备变了时先做，免得按下快捷键时卡住主线程、热键钩子被系统停掉
+    func prepare() throws {
+        guard !running else { return }
         guard let dev = InputDevices.current() else {
             throw NSError(domain: "NBIME", code: 1, userInfo: [NSLocalizedDescriptionKey: "没有能录音的设备"])
         }
-        if dev.id != engineDevice {
-            engine = AVAudioEngine()
-            var id = dev.id
-            let st = AudioUnitSetProperty(engine.inputNode.audioUnit!, kAudioOutputUnitProperty_CurrentDevice,
-                                          kAudioUnitScope_Global, 0, &id, UInt32(MemoryLayout<AudioDeviceID>.size))
-            Log.w(st == noErr ? "录音设备换成 \(dev.name)" : "录音设备换不过去（\(st)），用系统默认的")
-            engineDevice = dev.id
-        }
+        guard dev.id != engineDevice else { return }
+        engine = AVAudioEngine()
+        var id = dev.id
+        let st = AudioUnitSetProperty(engine.inputNode.audioUnit!, kAudioOutputUnitProperty_CurrentDevice,
+                                      kAudioUnitScope_Global, 0, &id, UInt32(MemoryLayout<AudioDeviceID>.size))
+        _ = engine.inputNode.outputFormat(forBus: 0)
+        Log.w(st == noErr ? "录音设备换成 \(dev.name)" : "录音设备换不过去（\(st)），用系统默认的")
+        engineDevice = dev.id
+    }
+
+    func start() throws {
+        try prepare()
         let input = engine.inputNode
         let inFormat = input.outputFormat(forBus: 0)
         guard inFormat.sampleRate > 0, let conv = AVAudioConverter(from: inFormat, to: outFormat) else {

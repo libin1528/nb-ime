@@ -20,7 +20,7 @@ protocol SettingsHost: AnyObject {
 
 final class SettingsWindow: NSObject, NSWindowDelegate {
     static let width: CGFloat = 680
-    static let height: CGFloat = 480
+    static let height: CGFloat = 520
     static let inner: CGFloat = width - 56
 
     private var window: NSWindow?
@@ -175,6 +175,8 @@ final class GeneralPane: Pane {
                    UI.toggle(s.stripShortTrailingPeriod) { Settings.current.stripShortTrailingPeriod = $0 }),
             UI.row("输入后恢复剪贴板", "文字是借剪贴板粘进去的，粘完把你原来复制的东西放回去",
                    UI.toggle(s.restoreClipboard) { Settings.current.restoreClipboard = $0 }),
+            UI.row("记下我改了哪些字", "输入后记下你改成了什么，只存本机，密码框不读",
+                   UI.toggle(s.trackEdits) { Settings.current.trackEdits = $0 }),
         ]))
     }
 
@@ -614,7 +616,15 @@ private final class HistoryCell: NSTableCellView {
         text.isSelectable = true
         var meta = History.when(e.date) + " · " + String(format: "%.1f 秒", e.seconds)
         if !e.app.isEmpty { meta += " · " + e.app }
-        let left = UI.vstack([text, UI.label(meta, size: 11, color: .tertiaryLabelColor)], spacing: 2)
+        var lines: [NSView] = [text]
+        if let edited = e.edited {
+            // 输入以后在输入框里被改成了这样
+            let after = UI.wrapping("改成了：" + (edited.isEmpty ? "（删掉了）" : edited), size: 12, color: .secondaryLabelColor, width: width - 180)
+            after.isSelectable = true
+            lines.append(after)
+        }
+        lines.append(UI.label(meta, size: 11, color: .tertiaryLabelColor))
+        let left = UI.vstack(lines, spacing: 2)
         for b in buttons {
             b.controlSize = .small
             b.alphaValue = 0

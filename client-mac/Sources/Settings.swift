@@ -29,6 +29,7 @@ struct Settings {
     var onboarded = false            // 首次引导走完了
     var micUID = ""                  // 录音用的麦克风（CoreAudio 设备 UID）；空 = 跟着系统默认
     var micName = ""                 // 它的名字，拔掉以后设置里还能显示
+    var trackEdits = true            // 输入后记下我把这段字改成了什么（只存本机，见 Edits.swift）
 
     /// 全局唯一的一份；改了就写回 config.json 并通知界面
     static var current = Settings.load() {
@@ -89,6 +90,7 @@ struct Settings {
         if let v = j["onboarded"] as? Bool { s.onboarded = v }
         if let v = j["micUID"] as? String { s.micUID = v }
         if let v = j["micName"] as? String { s.micName = v }
+        if let v = j["trackEdits"] as? Bool { s.trackEdits = v }
         return s
     }
 
@@ -101,7 +103,7 @@ struct Settings {
             "sounds": sounds, "streamPreview": streamPreview, "onboarded": onboarded,
             "polishClean": polishClean.rawValue, "polishFormat": polishFormat.rawValue,
             "polishPort": polishPort, "polishLocalPort": polishLocalPort,
-            "micUID": micUID, "micName": micName,
+            "micUID": micUID, "micName": micName, "trackEdits": trackEdits,
         ]
         if let hotkeyCode2 { j["hotkeyCode2"] = Int(hotkeyCode2) }
         if let d = try? JSONSerialization.data(withJSONObject: j, options: [.prettyPrinted, .sortedKeys]) {

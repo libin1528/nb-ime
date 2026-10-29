@@ -21,6 +21,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private var menuBar: MenuBar?
     private lazy var settingsWindow = SettingsWindow(host: self)
     private lazy var onboarding = Onboarding()
+    private let edits = EditWatcher()
 
     private var phase = Phase.idle
     private var taskId = ""
@@ -62,6 +63,10 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             runPolishTest(polishTest)
             return
         }
+        if let typed = arg("--edit-test") {
+            runEditTest(typed)
+            return
+        }
         connect()
         if let testFile {
             runFileTest(testFile)
@@ -70,6 +75,10 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         setupMenuBar()
         recorder.onSamples = { [weak self] in self?.handleSamples($0) }
         InputDevices.watch()
+        try? recorder.prepare()
+        NotificationCenter.default.addObserver(forName: .inputDevicesChanged, object: nil, queue: .main) { [weak self] _ in
+            try? self?.recorder.prepare()
+        }
         hotkey.onDown = { [weak self] in self?.hotkeyDown() }
         hotkey.onUp = { [weak self] in self?.hotkeyUp() }
         hotkey.onOtherKey = { [weak self] in
@@ -157,6 +166,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             hotkey.codes = s.hotkeyCodes
             Log.w("快捷键改成 \(Hotkey.describe(s.hotkeyCodes))")
         }
+        try? recorder.prepare()   // 换了麦克风的话先把引擎建好
         refreshStatus()
     }
 
@@ -201,6 +211,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
 
     private func hotkeyDown() {
         guard phase == .idle else { return }
+        edits.finish()   // 又要说下一句了，上一句改成什么样就按现在的记
         guard client.connected else {
             capsule.show(.offline, for: 2.2)
             return
@@ -287,6 +298,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private func armTimeout(_ id: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
             guard let self, self.releasedAt.removeValue(forKey: id) != nil, !self.discard.contains(id) else { return }
+            Log.w("识别超时 \(id.prefix(8))，晚到的结果不再输入")
+            self.discard.insert(id)   // 服务端卡住以后结果可能过很久才回来，那时再粘贴就粘到别处去了
             self.taskAudio[id] = nil
             self.retryOf[id] = nil
             self.capsule.show(.note("clock", "识别超时"), for: 2)
@@ -449,11 +462,11 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             guard let self else { return }
             self.polishing -= 1
             if note != "没开" { Log.w("润色 \(note)" + (out != raw ? "：\(out)" : "")) }
-            self.deliver(out, started: started, meta: meta)
+            self.deliver(out, recognized: raw, started: started, meta: meta)
         }
     }
 
-    private func deliver(_ result: String, started: Date?, meta: Meta?) {
+    private func deliver(_ result: String, recognized: String, started: Date?, meta: Meta?) {
         var text = result
         if Settings.current.stripShortTrailingPeriod, text.count <= 12, let last = text.last, "。.".contains(last) {
             text.removeLast()
@@ -473,6 +486,9 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         Paster.paste(text, restore: Settings.current.restoreClipboard)
         capsule.show(.done(text.count), for: 1.6)
         History.add(HistoryEntry(text: text, date: Date(), seconds: meta?.seconds ?? 0, app: meta?.app ?? "", audio: meta?.audio))
+        if Settings.current.trackEdits {
+            edits.start(.init(recognized: recognized, typed: text, app: meta?.app ?? "", audio: meta?.audio, seconds: meta?.seconds ?? 0))
+        }
         onboarding.heard(text)
         refreshStatus()
     }
@@ -610,6 +626,20 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             }
         }
         next()
+    }
+
+    // MARK: 改字记录实测：--edit-test <刚输入的字> [--seconds N]
+    // 假装刚把这段字粘进了当前焦点的输入框，盯 N 秒（默认 8）后按最后的样子记一条，只写日志
+
+    private func runEditTest(_ typed: String) {
+        EditLog.dryRun = true
+        let app = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+        edits.start(.init(recognized: typed, typed: typed, app: app, audio: nil, seconds: 0))
+        let secs = arg("--seconds").flatMap(Double.init) ?? 8
+        DispatchQueue.main.asyncAfter(deadline: .now() + secs) {
+            self.edits.finish()
+            NSApp.terminate(nil)
+        }
     }
 
     // MARK: 截图用：--demo <界面>
