@@ -342,20 +342,27 @@ final class HotkeyPane: Pane {
 
 // MARK: - 热词
 
-/// 一行一个词，像改文档一样直接改；停手半秒自动存
+/// 一行一个词，像改文档一样直接改；停手半秒自动存。「错的=对的」是一定替换的规则（见 Replace.swift）
 final class WordsPane: Pane, NSTextViewDelegate {
     private let text = NSTextView()
     private let count = UI.label("", size: 12, color: .secondaryLabelColor)
     private var saveWork: DispatchWorkItem?
 
     override func build() {
-        add(UI.wrapping("人名、产品名、专业词，一行一个。识别时会优先往这些词上靠，读音一样的也会换成这里的写法，比如加了「Wan3」，说「万三」就输入 Wan3。",
-                        size: 13, width: SettingsWindow.inner), after: 12)
+        // 两行示例：左边照着写，右边一句话说是什么
+        func example(_ code: String, _ note: String) -> NSView {
+            let c = UI.label(code, color: .labelColor)
+            c.font = .monospacedSystemFont(ofSize: 12.5, weight: .regular)
+            c.widthAnchor.constraint(equalToConstant: 150).isActive = true
+            return UI.hstack([c, UI.label(note, size: 12.5, color: .secondaryLabelColor)], spacing: 10)
+        }
+        add(UI.pad(UI.vstack([example("Wan3", "常用词，读音相近的也写成这样"), example("日色、日社=润色", "一定替换，左边至少两个字")], spacing: 6),
+                   NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)), after: 12)
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.borderType = .bezelBorder
-        scroll.heightAnchor.constraint(equalToConstant: 290).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 330).isActive = true
         text.font = .systemFont(ofSize: 14)
         text.textContainerInset = NSSize(width: 6, height: 8)
         text.isRichText = false
@@ -384,9 +391,19 @@ final class WordsPane: Pane, NSTextViewDelegate {
     }
 
     private func reload() {
-        let words = Settings.hotwordList()
-        text.string = words.joined(separator: "\n")
-        count.stringValue = "\(words.count) 个词 · 只存在这台 Mac 上，团队里每个人各管各的"
+        let lines = Settings.hotwordLines()
+        text.string = lines.joined(separator: "\n")
+        count.stringValue = Self.summary(lines)
+    }
+
+    /// 「8 个词 · 2 条替换 · 1 条没生效（左边要至少两个字）· 只存在这台 Mac 上」
+    private static func summary(_ lines: [String]) -> String {
+        let rules = lines.filter(ReplaceRule.isRule)
+        let bad = rules.filter { ReplaceRule.parse($0) == nil }.count
+        var parts = ["\(lines.count - rules.count) 个词"]
+        if !rules.isEmpty { parts.append("\(rules.count - bad) 条替换") }
+        if bad > 0 { parts.append("\(bad) 条没生效（左边要至少两个字）") }
+        return (parts + ["只存在这台 Mac 上"]).joined(separator: " · ")
     }
 
     private func parsed() -> [String] {
@@ -404,10 +421,10 @@ final class WordsPane: Pane, NSTextViewDelegate {
     }
 
     private func save() {
-        let words = parsed()
-        if words != Settings.hotwordList() { Settings.saveHotwords(words) }
+        let lines = parsed()
+        if lines != Settings.hotwordLines() { Settings.saveHotwords(lines) }
         saveWork = nil
-        count.stringValue = "\(words.count) 个词 · 只存在这台 Mac 上，团队里每个人各管各的"
+        count.stringValue = Self.summary(lines)
     }
 
     override func viewWillDisappear() {

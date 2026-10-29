@@ -415,7 +415,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         let t = String(format: "%.1f", Date().timeIntervalSince(previewStarted))
         if testFile != nil { print("PREVIEW \(t)s \(text)") }
         Log.w("预览 \(t)s：\(text)")
-        capsule.setPreview(Hotfix.apply(text, Settings.hotwordList()))
+        capsule.setPreview(Hotfix.apply(Replace.apply(text, Settings.replaceRules()).text, Settings.hotwordList()))
     }
 
     // MARK: 结果
@@ -458,6 +458,12 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         let meta = taskMeta.removeValue(forKey: id)
         let ms = started.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
+        // 先按「错的=对的」一定替换，再按读音换回热词
+        let replaced = Replace.apply(text, Settings.replaceRules())
+        if !replaced.hits.isEmpty {
+            Log.w("按规则替换：\(replaced.hits.joined(separator: "，"))")
+            text = replaced.text
+        }
         let hot = Settings.hotwordList()
         let fixed = Hotfix.apply(text, hot)
         if fixed != text {

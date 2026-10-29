@@ -125,25 +125,36 @@ struct Settings {
 
     // MARK: 热词
 
-    private static var cachedHotwords: [String]?
+    private static var cachedLines: [String]?
 
-    static func hotwordList() -> [String] {
-        if let cachedHotwords { return cachedHotwords }
+    /// 热词文件里的每一行（去掉空行和 # 开头的注释），热词页原样编辑的就是这些
+    static func hotwordLines() -> [String] {
+        if let cachedLines { return cachedLines }
         let text = (try? String(contentsOf: hotwordsURL, encoding: .utf8)) ?? ""
-        let words = text.split(whereSeparator: \.isNewline)
+        let lines = text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-        cachedHotwords = words
-        return words
+        cachedLines = lines
+        return lines
     }
 
-    /// 文件可能被手改过，打开设置时重读一次
-    static func reloadHotwords() { cachedHotwords = nil }
+    /// 交给模型、读音纠正、润色用的热词：普通的行，加上替换规则等号右边的词
+    static func hotwordList() -> [String] {
+        var seen = Set<String>()
+        return hotwordLines().compactMap { ReplaceRule.isRule($0) ? ReplaceRule.parse($0)?.to : $0 }.filter { seen.insert($0).inserted }
+    }
 
-    static func saveHotwords(_ words: [String]) {
-        let text = "# 一行一个词，识别时作为上下文提示给模型\n" + words.map { $0 + "\n" }.joined()
+    /// 「错的=对的」这样的行
+    static func replaceRules() -> [ReplaceRule] { hotwordLines().compactMap(ReplaceRule.parse) }
+
+    /// 文件可能被手改过，打开设置时重读一次
+    static func reloadHotwords() { cachedLines = nil }
+
+    static func saveHotwords(_ lines: [String]) {
+        let text = "# 一行一个词，识别时作为上下文提示给模型；「错的=对的」是一定替换的规则，几种错法用顿号隔开\n"
+            + lines.map { $0 + "\n" }.joined()
         try? text.write(to: hotwordsURL, atomically: true, encoding: .utf8)
-        cachedHotwords = words
+        cachedLines = lines
         NotificationCenter.default.post(name: .hotwordsChanged, object: nil)
     }
 
