@@ -8,8 +8,9 @@ Get-Process start_server -ErrorAction SilentlyContinue | Stop-Process -Force
 $action = New-ScheduledTaskAction -Execute "$dir\start_server.exe" -WorkingDirectory $dir
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 `
-    -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+    -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -Priority 2
 # S4U：不弹控制台窗口，不打扰 ITX 桌面上的 Windows 自动化测试；Vulkan 在这种会话里照样能用显卡
+# 优先级 2 = 高于正常。不写的话计划任务默认 7（低于正常）：CPU 抢不过别的程序，内存也最先被换出去，ITX 一忙识别就慢（10-29 查出来的）
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType S4U -RunLevel Limited
 Register-ScheduledTask -TaskName CapsWriterServer -Action $action -Trigger $trigger -Settings $settings `
     -Principal $principal -Description "CapsWriter 语音识别服务端（语音输入法 Mac 客户端用）" -Force | Out-Null

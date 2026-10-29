@@ -23,7 +23,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private lazy var onboarding = Onboarding()
     private let edits = EditWatcher()
 
-    private var phase = Phase.idle
+    private var phase = Phase.idle { didSet { phaseAt = Date() } }
+    private var phaseAt = Date()
     private var taskId = ""
     private var startTime = 0.0
     private var pending: [Float] = []
@@ -210,9 +211,16 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     // MARK: 录音
 
     private func hotkeyDown() {
-        guard phase == .idle else { return }
+        // 能走到这里说明快捷键全都松开过，按理应该是空闲。收尾那 0.3 秒里又按下是正常的，别打断；停得比这久就是上次没收好尾，收掉再开始
+        if phase != .idle {
+            let stuck = Date().timeIntervalSince(phaseAt)
+            guard phase != .finishing || stuck > 2 else { Log.w("按下没反应：上一句还在收尾"); return }
+            Log.w("按下时上一次还停在 \(phase)（\(String(format: "%.0f", stuck)) 秒了），先收掉")
+            cancelRecording("上一次没收尾")
+        }
         edits.finish()   // 又要说下一句了，上一句改成什么样就按现在的记
         guard client.connected else {
+            Log.w("按下没反应：没连上识别服务")
             capsule.show(.offline, for: 2.2)
             return
         }
@@ -222,8 +230,11 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         sentSamples = 0
         peakLevel = 0
         frontApp = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
+        let t0 = Date()
         do {
             try recorder.start()
+            let ms = Int(Date().timeIntervalSince(t0) * 1000)
+            if ms > 300 { Log.w("开麦克风用了 \(ms)ms") }
         } catch {
             capsule.show(.note("mic.slash", "麦克风打不开"), for: 2)
             Log.w("录音失败 \(error.localizedDescription)")
@@ -247,6 +258,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         case .holding:
             recorder.stop()
             phase = .idle
+            Log.w("按得太短（不到 \(Settings.current.holdThreshold) 秒），不录")
         case .recording:
             phase = .finishing
             Sounds.stop()

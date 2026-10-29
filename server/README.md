@@ -9,7 +9,7 @@
 | 目录 | `%USERPROFILE%\CapsWriter-Offline` |
 | 模型 | `models\Qwen3-ASR\Qwen3-ASR-1.7B\` |
 | 监听 | `127.0.0.1:6016`（只听本机，客户端走 ssh 隧道，防火墙没动） |
-| 自启 | 计划任务 `CapsWriterServer`，登录后启动，S4U 后台运行，挂了 1 分钟内重启 |
+| 自启 | 计划任务 `CapsWriterServer`，登录后启动，S4U 后台运行，挂了 1 分钟内重启，优先级 2（高于正常） |
 | 日志 | `logs\server_latest.log`（INFO 级别会记下识别出的文字） |
 
 对 `config_server.py` 的改动只有两处：`addr = '127.0.0.1'`、`enable_tray = False`。
@@ -34,6 +34,16 @@ schtasks /end /tn CapsWriterServer; Get-Process start_server -ErrorAction Silent
 Get-Process start_server   # 正常是 3 个：主进程加两个子进程。多了就是之前留下的孤儿进程
 Get-Content -Tail 20 -Encoding UTF8 %USERPROFILE%\CapsWriter-Offline\logs\server_latest.log
 ```
+
+### 进程优先级
+
+计划任务不写优先级时默认是 7，起来的进程是「低于正常」（BelowNormal）：CPU 抢不过同一台机器上的别的程序，Windows 还会把它的内存优先换出到硬盘。ITX 上跑 Flutter 测试那种重活时识别会变得很慢，闲了几分钟后的第一句尤其慢（10-29 14:19 一段 2 秒的预览要 38 秒）。所以两个任务都设成优先级 2（高于正常），两个注册脚本里写了 `-Priority 2`。已经注册好的任务可以直接改：
+
+```powershell
+foreach ($n in "CapsWriterServer","NBPolishLLM") { $t = Get-ScheduledTask -TaskName $n; $t.Settings.Priority = 2; Set-ScheduledTask -InputObject $t }
+```
+
+改完要重启服务才生效。识别服务的主进程和 llama-server 是「高于正常」；识别的两个子进程是「正常」（Windows 里父进程高于正常时子进程不继承，回到正常），比原来的「低于正常」好，要再往上得改注册表里的系统级设置，没做。
 
 ## 润色用的小模型
 

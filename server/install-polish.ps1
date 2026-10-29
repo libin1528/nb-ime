@@ -15,7 +15,8 @@ Stop-ScheduledTask -TaskName NBPolishLLM -ErrorAction SilentlyContinue
 $action = New-ScheduledTaskAction -Execute $bin -Argument $argline -WorkingDirectory $dir
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 `
-    -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+    -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -Priority 2
+# 优先级 2 = 高于正常。不写的话计划任务默认 7（低于正常）：CPU 抢不过别的程序，内存也最先被换出去，ITX 一忙识别就慢（10-29 查出来的）
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType S4U -RunLevel Limited
 Register-ScheduledTask -TaskName NBPolishLLM -Action $action -Trigger $trigger -Settings $settings `
     -Principal $principal -Description "NB 输入法识别后润色用的小模型（llama-server + Qwen3.5-4B）" -Force | Out-Null
