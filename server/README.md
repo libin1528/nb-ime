@@ -14,6 +14,10 @@
 
 对 `config_server.py` 的改动只有两处：`addr = '127.0.0.1'`、`enable_tray = False`。
 
+另外改了识别的解码温度（2026-10-29）：`core\server\engines\qwen_asr_gguf\asr_engine.py` 里 `decode_stream` 的 `temperature` 默认值从 `0.4` 改成 `0.0`。CapsWriter 原来用 0.4 的温度加随机种子采样，同一段录音每次识别结果都可能不同，声音含糊时尤其明显；改成 0 以后每次都取最可能的字（greedy），同样的输入出同样的结果。出现重复循环时 `_safe_decode` 仍会把温度加 0.3 重试，这个保底没动。原文件备份在同目录的 `asr_engine.py.bak-20261029`，要改回去就把备份拷回来，再重启服务。CapsWriter 升级会把这个改动冲掉，要重新改。
+
+用 20 段真实录音、每段识别 3 次对比：改前 12 段三次结果一样，改后 20 段都一样；声音清楚的几段改前改后字一样，声音太小的几段改后照样错，只是错得稳定了。
+
 ## 从零部署
 
 1. 在 Mac 上下载（ITX 直连 GitHub 只有约 240KB/s）：
