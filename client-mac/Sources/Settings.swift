@@ -27,6 +27,8 @@ struct Settings {
     var polishPort = 6017            // ITX 上润色模型（llama-server）的端口
     var polishLocalPort = 16017      // 隧道在本机的端口
     var onboarded = false            // 首次引导走完了
+    var micUID = ""                  // 录音用的麦克风（CoreAudio 设备 UID）；空 = 跟着系统默认
+    var micName = ""                 // 它的名字，拔掉以后设置里还能显示
 
     /// 全局唯一的一份；改了就写回 config.json 并通知界面
     static var current = Settings.load() {
@@ -85,6 +87,8 @@ struct Settings {
         if let v = j["polishPort"] as? Int { s.polishPort = v }
         if let v = j["polishLocalPort"] as? Int { s.polishLocalPort = v }
         if let v = j["onboarded"] as? Bool { s.onboarded = v }
+        if let v = j["micUID"] as? String { s.micUID = v }
+        if let v = j["micName"] as? String { s.micName = v }
         return s
     }
 
@@ -97,6 +101,7 @@ struct Settings {
             "sounds": sounds, "streamPreview": streamPreview, "onboarded": onboarded,
             "polishClean": polishClean.rawValue, "polishFormat": polishFormat.rawValue,
             "polishPort": polishPort, "polishLocalPort": polishLocalPort,
+            "micUID": micUID, "micName": micName,
         ]
         if let hotkeyCode2 { j["hotkeyCode2"] = Int(hotkeyCode2) }
         if let d = try? JSONSerialization.data(withJSONObject: j, options: [.prettyPrinted, .sortedKeys]) {

@@ -129,6 +129,7 @@ final class BackgroundView: NSView {
 
 final class GeneralPane: Pane {
     private var loginSwitch: NSSwitch!
+    private let mic = NSPopUpButton()
 
     override func build() {
         let s = Settings.current
@@ -143,6 +144,22 @@ final class GeneralPane: Pane {
                    }),
             UI.row("说话时实时显示文字", "每 2 秒更新一次；松开后用完整识别的结果输入",
                    UI.toggle(s.streamPreview) { Settings.current.streamPreview = $0 }),
+        ]))
+        add(UI.sectionTitle("声音"), after: 6)
+        mic.controlSize = .small
+        mic.onAction { [weak self] _ in
+            guard let self, let uid = self.mic.selectedItem?.representedObject as? String else { return }
+            var s = Settings.current
+            s.micUID = uid
+            s.micName = InputDevices.all().first { $0.uid == uid }?.name ?? ""
+            Settings.current = s
+        }
+        reloadMics()
+        NotificationCenter.default.addObserver(forName: .inputDevicesChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.reloadMics()
+        }
+        add(GroupView([
+            UI.row("麦克风", "选的麦克风拔掉或没开时，先用系统默认的", mic),
             UI.row("开始和结束时的提示音", nil, UI.toggle(s.sounds) { Settings.current.sounds = $0 }),
         ]))
         add(UI.sectionTitle("文字"), after: 6)
@@ -164,6 +181,25 @@ final class GeneralPane: Pane {
     override func viewWillAppear() {
         super.viewWillAppear()
         loginSwitch.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        reloadMics()
+    }
+
+    /// 第一项跟随系统（括号里是系统现在用的），下面是所有能录音的设备；选过的拔掉了也留一项，标上没连上
+    private func reloadMics() {
+        let s = Settings.current
+        let devices = InputDevices.all()
+        mic.removeAllItems()
+        func item(_ title: String, _ uid: String) {
+            mic.addItem(withTitle: title)
+            mic.lastItem?.representedObject = uid
+        }
+        item("跟随系统（\(InputDevices.systemDefault?.name ?? "没有")）", "")
+        mic.menu?.addItem(.separator())
+        for d in devices { item(d.name, d.uid) }
+        if !s.micUID.isEmpty, !devices.contains(where: { $0.uid == s.micUID }) {
+            item("\(s.micName.isEmpty ? "选过的麦克风" : s.micName)（没连上）", s.micUID)
+        }
+        mic.selectItem(at: mic.indexOfItem(withRepresentedObject: s.micUID))
     }
 }
 
