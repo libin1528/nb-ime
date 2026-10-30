@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>热词页交互稿</title>
+<style>
+:root{
+  --page:#f2f2f4; --ink:#1d1d1f; --ink2:#6e6e73; --ink3:#a1a1a6; --line:#e3e3e8;
+  --win:#ffffff; --group:#f5f5f7; --accent:#0a84ff;
+  --wrong:#c2410c; --right:#15803d; --op:#8e8e93; --warn:#b45309; --warnbg:#fff7e8;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif;
+  --mono:"SF Mono",ui-monospace,Menlo,"PingFang SC",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:13px/1.5 var(--font);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:36px 24px 80px}
+h1{font-size:24px;font-weight:700;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--ink2);margin:0 0 24px;max-width:780px}
+.layout{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap}
+
+/* ---------- 窗口 ---------- */
+.window{width:680px;max-width:100%;background:var(--win);border-radius:12px;box-shadow:0 0 0 .5px rgba(0,0,0,.18),0 22px 60px rgba(0,0,0,.16);overflow:hidden;flex:none}
+.titlebar{height:28px;display:flex;align-items:center;gap:8px;padding:0 12px;position:relative}
+.titlebar i{width:12px;height:12px;border-radius:50%;display:block;background:#dcdcde}
+.titlebar span{position:absolute;left:0;right:0;text-align:center;font-weight:600;font-size:13px;color:var(--ink3);pointer-events:none}
+.tabs{display:flex;justify-content:center;gap:2px;padding:2px 10px 8px;border-bottom:1px solid var(--line)}
+.tab{display:flex;flex-direction:column;align-items:center;gap:2px;width:62px;padding:5px 0 4px;border-radius:7px;color:#8a8a8e;font-size:11px}
+.tab svg{width:21px;height:21px}
+.tab.on{background:#ececee;color:#333}
+.pane{padding:18px 26px 18px;min-height:520px;display:flex;flex-direction:column}
+
+.top{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.top p{margin:0;color:var(--ink2);flex:1;font-size:12.5px}
+.top code{font:12px var(--mono);background:var(--group);padding:1px 5px;border-radius:4px;color:var(--ink)}
+.seg{display:flex;background:#e9e9ec;border-radius:7px;padding:2px;flex:none}
+.seg span{font-size:12px;padding:2px 12px;border-radius:5px;cursor:pointer;color:#444;user-select:none}
+.seg span.on{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.14);color:var(--ink)}
+
+.sec{display:flex;align-items:baseline;gap:8px;margin:4px 2px 8px}
+.sec b{font-size:12px;font-weight:600;color:var(--ink2)}
+.sec .n{font-size:11.5px;color:var(--ink3)}
+.sec .hint{margin-left:auto;font-size:11.5px;color:var(--ink3)}
+
+/* 常用词：多列 */
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:18px}
+.cell{position:relative;height:32px;display:flex;align-items:center;padding:0 26px 0 11px;background:var(--group);border-radius:7px;font-size:13.5px;cursor:text;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s}
+.cell:hover{background:#ececef}
+.cell .x{position:absolute;right:6px;top:8px;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;color:#fff;background:#b4b4b8;font-size:11px;line-height:1;opacity:0;cursor:pointer;transition:opacity .12s}
+.cell:hover .x{opacity:1}
+.cell .x:hover{background:#86868b}
+.cell.from{color:var(--right);background:#f0f8f2}
+.cell.from:hover{background:#e6f3e9}
+.cell.from .x{display:none}
+.cell.from small{font-size:10.5px;color:#6aa37c;margin-left:6px}
+.cell.add{background:none;border:1px dashed #cfcfd4;color:var(--ink3);padding-right:11px}
+.cell.add:hover{border-color:var(--accent);color:var(--accent);background:none}
+.cell input{all:unset;width:100%;font:13.5px var(--font);color:var(--ink)}
+.cell.editing{background:#fff;box-shadow:0 0 0 2px var(--accent) inset;padding-right:11px}
+.cell.mono input{font-family:var(--mono);font-size:12.5px}
+.cell.flash{animation:flash 1s}
+@keyframes flash{0%{background:#d9ebff}100%{}}
+
+/* 一定替换：像代码一样 */
+.rules{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.rule{position:relative;min-height:34px;display:flex;align-items:center;flex-wrap:wrap;gap:3px 0;padding:6px 26px 6px 11px;background:#f7f7f9;border:1px solid #ececf0;border-radius:7px;font:12.5px/1.4 var(--mono);cursor:text}
+.rule:hover{border-color:#dcdce2}
+.rule .w{color:var(--wrong)}
+.rule .s{color:var(--op)}
+.rule .ar{color:var(--op);margin:0 7px}
+.rule .r{color:var(--right);font-weight:600}
+.rule .x{position:absolute;right:6px;top:9px;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;color:#fff;background:#b4b4b8;font:11px/1 var(--font);opacity:0;cursor:pointer}
+.rule:hover .x{opacity:1}
+.rule.bad{background:var(--warnbg);border-color:#f5d9a8}
+.rule.bad .w.short{text-decoration:underline wavy #e0a33a;text-underline-offset:3px}
+.rule .why{flex-basis:100%;font:11.5px var(--font);color:var(--warn)}
+.rule.editing{background:#fff;border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.rule input{all:unset;width:100%;font:12.5px var(--mono);color:var(--ink)}
+.rule.add{background:none;border:1px dashed #cfcfd4;color:var(--ink3);font-family:var(--font);font-size:13px}
+.rule.add:hover{border-color:var(--accent);color:var(--accent)}
+.tip{position:absolute;z-index:5;display:none;align-items:center;gap:0;padding:6px 10px;background:#fff;border-radius:7px;box-shadow:0 0 0 .5px rgba(0,0,0,.15),0 6px 18px rgba(0,0,0,.12);font:12.5px var(--mono);color:var(--ink3);white-space:nowrap}
+.tip.on{display:flex}
+.tip .w{color:var(--wrong)} .tip .s{color:var(--op)} .tip .ar{color:var(--op);margin:0 7px} .tip .r{color:var(--right);font-weight:600}
+.tip .short{text-decoration:underline wavy #e0a33a;text-underline-offset:3px}
+.tip em{font:11.5px var(--font);font-style:normal;color:var(--warn);margin-left:6px}
+
+/* 文本视图：代码编辑器 */
+.code{position:relative;display:flex;border:1px solid #dcdce2;border-radius:8px;background:#fbfbfc;height:392px;overflow:auto;font:13px/22px var(--mono)}
+.gutter{flex:none;padding:8px 8px 8px 0;width:38px;text-align:right;color:#c0c0c6;background:#f4f4f6;border-right:1px solid #ececf0;user-select:none;min-height:100%}
+.gutter div.bad{color:var(--warn);font-weight:600}
+.ed{position:relative;flex:1;min-height:100%}
+.ed pre,.ed textarea{margin:0;padding:8px 12px;font:inherit;white-space:pre-wrap;word-break:break-all;border:0;tab-size:2}
+.ed pre{pointer-events:none;color:var(--ink)}
+.ed textarea{position:absolute;inset:0;width:100%;height:100%;resize:none;background:transparent;color:transparent;caret-color:var(--ink);outline:none;overflow:hidden}
+.ed .c{color:#a1a1a6;font-style:italic}
+.ed .w{color:var(--wrong)} .ed .s,.ed .o{color:var(--op)} .ed .r{color:var(--right);font-weight:600}
+.ed .short{text-decoration:underline wavy #e0a33a;text-underline-offset:4px}
+
+.foot{display:flex;gap:8px;align-items:center;margin-top:auto;padding-top:14px;font-size:12px;color:var(--ink2)}
+.foot .warn{color:var(--warn)}
+.foot .saved{margin-left:auto;color:var(--ink3);transition:opacity .3s}
+
+.toast{position:absolute;left:50%;bottom:54px;transform:translateX(-50%) translateY(6px);background:rgba(30,30,32,.9);color:#fff;font-size:12px;padding:6px 8px 6px 14px;border-radius:8px;display:flex;gap:12px;align-items:center;opacity:0;pointer-events:none;transition:.2s}
+.toast.on{opacity:1;transform:translateX(-50%);pointer-events:auto}
+.toast button{all:unset;color:#6cb4ff;font-weight:600;cursor:pointer;padding:0 6px}
+
+/* ---------- 旁边的说明 ---------- */
+.notes{flex:1;min-width:300px;max-width:440px}
+.notes h3{font-size:14px;margin:4px 0 8px}
+.notes ul{margin:0 0 20px;padding-left:18px;color:#3a3a3c}
+.notes li{margin:0 0 7px}
+.notes code{font:12px var(--mono);background:#fff;padding:1px 5px;border-radius:4px}
+.try{background:#fff;border-radius:12px;padding:14px 16px;margin-bottom:20px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.try h3{margin-top:0}
+.try ol{margin:0;padding-left:18px;color:#3a3a3c}
+.try li{margin:0 0 6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>热词页 · 交互稿</h1>
+  <p class="sub">常用词排成四列，「错的=对的」单独一块、像代码一样上色。右上角能切回「文本」，还是原来一行一个的写法，只是加了行号和颜色。下面的窗口可以直接点、直接改。</p>
+
+  <div class="layout">
+    <div class="window">
+      <div class="titlebar"><i></i><i></i><i></i><span>热词</span></div>
+      <div class="tabs">
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>通用</div>
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2" y="6" width="20" height="13" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 15h10"/></svg>快捷键</div>
+        <div class="tab on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16M4 12h10M4 17h7"/><path d="M17 14l1.5 3 3 .4-2.2 2.1.6 3-2.9-1.5-2.9 1.5.6-3-2.2-2.1 3-.4z"/></svg>热词</div>
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 20 15 9M14 4v3M19 9h3M17.5 5.5l2-2M12 2.5v0"/></svg>润色</div>
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>历史</div>
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>识别服务</div>
+        <div class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></svg>关于</div>
+      </div>
+
+      <div class="pane" style="position:relative">
+        <div class="top">
+          <p>识别时优先往这些词上靠。写 <code>错的=对的</code> 的，左边一律换成右边。</p>
+          <div class="seg" id="seg"><span class="on" data-v="list">列表</span><span data-v="text">文本</span></div>
+        </div>
+
+        <div id="listView">
+          <div class="sec"><b>常用词</b><span class="n" id="nWords"></span><span class="hint">点一下就能改 · 读音相近的也会写成这样</span></div>
+          <div class="grid" id="grid"></div>
+          <div class="sec"><b>一定替换</b><span class="n" id="nRules"></span><span class="hint">左边几种错法用顿号隔开，至少两个字</span></div>
+          <div class="rules" id="rules"></div>
+        </div>
+
+        <div id="textView" hidden>
+          <div class="code" id="code">
+            <div class="gutter" id="gutter"></div>
+            <div class="ed"><pre id="hl"></pre><textarea id="ta" spellcheck="false"></textarea></div>
+          </div>
+        </div>
+
+        <div class="foot"><span id="sum"></span><span class="saved" id="saved">改完自动保存</span></div>
+        <div class="toast" id="toast"><span id="toastMsg"></span><button id="undo">撤销</button></div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <div class="try">
+        <h3>可以试试</h3>
+        <ol>
+          <li>点任意一个词改它，回车存，删空就是删掉；悬停点 × 删，底下能撤销。</li>
+          <li>在「＋ 添加」里输 <code>小袁=小圆</code> 回车，它会自己跑到「一定替换」里；边输边能看到上色后的样子。</li>
+          <li>点黄色那条 <code>袁=圆</code>，改成 <code>小袁=小圆</code>，警告就没了。</li>
+          <li>切到「文本」，整段粘贴、批量改都在这儿；切回来就重新排好。</li>
+        </ol>
+      </div>
+      <h3>怎么排的</h3>
+      <ul>
+        <li><b>常用词</b>固定四列，窗口 680 宽时每格约 150，<code>develop-ui</code> 这种也放得下；更长的省略号，悬停看全。</li>
+        <li>替换规则右边的词本来就自动算常用词，列表里用浅绿色排在最后，标「来自替换」，在这里不能删，要删去改规则。</li>
+        <li><b>一定替换</b>两列，等宽字体：<span style="color:var(--wrong);font-family:var(--mono)">错的</span> 橙色、<span style="color:var(--op);font-family:var(--mono)">→</span> 灰色、<span style="color:var(--right);font-family:var(--mono);font-weight:600">对的</span> 绿色加粗。原文的 <code>=</code> 显示成 <code>→</code>，读起来就是「换成」。</li>
+        <li>没生效的规则（左边不到两个字）整条变黄，不到两个字的那段画波浪线，下面一句话说为什么。</li>
+        <li>文件格式不变，还是一行一个，<code>hotwords.txt</code> 照旧能手改。列表和文本只是两种看法。</li>
+      </ul>
+      <h3>原生做起来</h3>
+      <ul>
+        <li>列表：两个 <code>NSCollectionView</code>（或手排的网格），点一下换成输入框。</li>
+        <li>文本：现在的 <code>NSTextView</code> 加行号，每次改完按行给 <code>textStorage</code> 上色，跟现在半秒自动存放一起。</li>
+      </ul>
+      <p style="color:var(--ink2);font-size:12px">示意数据：常用词是你现在的热词；替换里除了 <code>joy=joe</code>，另外三条是我加的样例。</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const SEPS = ["=>", "->", "→", "＝", "="];
+let lines = ["ClawChat","ClawNest","Liveware","小圆","NewBase","金波","Eros","Wan3","develop-ui","session","joy=joe","集卡","Grokbot",
+             "Clochat、Claw Chat=ClawChat","日色、日社=润色","袁=圆"];
+const len = s => [...s].length;
+const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const isRule = l => SEPS.some(s => l.includes(s));
+// 和 ReplaceRule.parse 一样：最早出现的分隔符；左边按顿号、斜杠、逗号拆
+function split(l) {
+  let at = -1, sep = "";
+  for (const s of SEPS) { const i = l.indexOf(s); if (i >= 0 && (at < 0 || i < at)) { at = i; sep = s; } }
+  return { left: l.slice(0, at), sep, right: l.slice(at + sep.length).trim() };
+}
+function parse(l) {
+  const { left, right } = split(l);
+  const parts = left.split(/([、\/／,，])/);
+  const from = [];
+  for (let i = 0; i < parts.length; i += 2) {
+    const t = parts[i].trim(); if (t) from.push({ t, ok: len(t) >= 2 && t !== right });
+  }
+  return { from, to: right, ok: !!right && from.some(f => f.ok), parts };
+}
+const words = () => lines.filter(l => !isRule(l));
+const rules = () => lines.filter(isRule);
+function ruleTargets() {
+  const w = new Set(words().map(x => x.toLowerCase()));
+  const out = [];
+  for (const r of rules()) { const p = parse(r); if (p.ok && !w.has(p.to.toLowerCase()) && !out.includes(p.to)) out.push(p.to); }
+  return out;
+}
+
+// 规则的上色：列表里 = 显示成 →
+function ruleHTML(l, arrow) {
+  const p = parse(l);
+  let h = "";
+  p.parts.forEach((t, i) => {
+    if (i % 2) { h += `<span class="s">${esc(t)}</span>`; return; }
+    const tt = t.trim(); if (!tt) return;
+    const ok = len(tt) >= 2 && tt !== p.to;
+    h += `<span class="w${ok ? "" : " short"}">${esc(tt)}</span>`;
+  });
+  h += arrow ? `<span class="ar">→</span>` : `<span class="o">${esc(split(l).sep)}</span>`;
+  h += `<span class="r">${esc(p.to) || "&nbsp;"}</span>`;
+  return { h, p };
+}
+
+const $ = id => document.getElementById(id);
+const grid = $("grid"), rulesEl = $("rules");
+
+function render() {
+  grid.innerHTML = ""; rulesEl.innerHTML = "";
+  for (const w of words()) {
+    const c = document.createElement("div");
+    c.className = "cell"; c.title = w;
+    c.innerHTML = `<span>${esc(w)}</span><span class="x" title="删掉">×</span>`;
+    c.querySelector(".x").onclick = e => { e.stopPropagation(); remove(w); };
+    c.onclick = () => edit(c, w, false);
+    grid.appendChild(c);
+  }
+  for (const t of ruleTargets()) {
+    const c = document.createElement("div");
+    c.className = "cell from"; c.title = "来自替换规则，要删去改规则";
+    c.innerHTML = `<span>${esc(t)}</span><small>来自替换</small>`;
+    grid.appendChild(c);
+  }
+  const add = document.createElement("div");
+  add.className = "cell add"; add.textContent = "＋ 添加";
+  add.onclick = () => edit(add, "", false);
+  grid.appendChild(add);
+
+  for (const r of rules()) {
+    const el = document.createElement("div");
+    const { h, p } = ruleHTML(r, true);
+    el.className = "rule" + (p.ok ? "" : " bad");
+    el.innerHTML = h + `<span class="x" title="删掉">×</span>` + (p.ok ? "" : `<span class="why">${p.to ? "左边要至少两个字，这条没生效" : "右边空着，这条没生效"}</span>`);
+    el.querySelector(".x").onclick = e => { e.stopPropagation(); remove(r); };
+    el.onclick = () => edit(el, r, true);
+    rulesEl.appendChild(el);
+  }
+  const ra = document.createElement("div");
+  ra.className = "rule add"; ra.textContent = "＋ 添加替换";
+  ra.onclick = () => edit(ra, "", true);
+  rulesEl.appendChild(ra);
+
+  const nw = words().length + ruleTargets().length, rs = rules(), bad = rs.filter(r => !parse(r).ok).length;
+  $("nWords").textContent = nw; $("nRules").textContent = rs.length;
+  $("sum").innerHTML = `${nw} 个词 · ${rs.length - bad} 条替换` + (bad ? ` · <span class="warn">${bad} 条没生效</span>` : "") + " · 只存在这台 Mac 上";
+}
+
+// 点一下换成输入框；输的是规则时，下面浮出上色后的样子
+const tip = document.createElement("div");
+tip.className = "tip"; document.body.appendChild(tip);
+function edit(el, old, inRules) {
+  if (el.classList.contains("editing")) return;
+  el.classList.add("editing"); el.classList.remove("bad");
+  el.innerHTML = `<input placeholder="${inRules ? "错的、另一种错法=对的" : "一个词，或者 错的=对的"}">`;
+  const inp = el.querySelector("input");
+  inp.value = old;
+  const live = () => {
+    const v = inp.value.trim(), r = isRule(v);
+    el.classList.toggle("mono", r || inRules);
+    if (!r && !inRules) { tip.classList.remove("on"); return; }
+    const box = el.getBoundingClientRect();
+    tip.style.left = box.left + window.scrollX + "px";
+    tip.style.top = box.bottom + window.scrollY + 6 + "px";
+    tip.innerHTML = r ? (inRules ? "" : "回车后放进「一定替换」：") + ruleHTML(v, true).h + (parse(v).ok ? "" : `<em>${parse(v).to ? "左边要至少两个字" : "右边还空着"}</em>`)
+                      : "中间写 = 或 →";
+    tip.classList.add("on");
+  };
+  inp.oninput = live;
+  live(); inp.focus(); inp.select();
+  let done = false;
+  const commit = keep => {
+    if (done) return; done = true;
+    tip.classList.remove("on");
+    const v = inp.value.trim();
+    if (!keep || v === old) { render(); return; }
+    const i = lines.indexOf(old);
+    if (!v) { i >= 0 ? remove(old) : render(); return; }
+    if (lines.includes(v)) { render(); return; }
+    if (i >= 0) lines[i] = v; else lines.push(v);
+    saved(); render();
+    // 新加的闪一下；从「添加」进来的，接着在原来那个「添加」里输
+    const key = isRule(v) ? parse(v).to : v;
+    [...document.querySelectorAll(isRule(v) ? ".rule:not(.add)" : ".cell:not(.add)")].reverse()
+      .find(n => n.textContent.includes(key))?.classList.add("flash");
+    if (!old) edit(document.querySelector(inRules ? ".rule.add" : ".cell.add"), "", inRules);
+  };
+  inp.onkeydown = e => {
+    if (e.key === "Enter") { e.preventDefault(); commit(true); }
+    if (e.key === "Escape") { e.preventDefault(); commit(false); }
+  };
+  inp.onblur = () => setTimeout(() => commit(true), 0);
+}
+
+let lastRemoved = null, toastTimer;
+function remove(l) {
+  const i = lines.indexOf(l); if (i < 0) return;
+  lines.splice(i, 1); lastRemoved = { l, i };
+  render(); saved();
+  $("toastMsg").textContent = `删掉了「${isRule(l) ? split(l).left.trim() + " → " + split(l).right : l}」`;
+  $("toast").classList.add("on");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("on"), 4000);
+}
+$("undo").onclick = () => {
+  if (!lastRemoved) return;
+  lines.splice(lastRemoved.i, 0, lastRemoved.l); lastRemoved = null;
+  $("toast").classList.remove("on"); render(); saved();
+};
+
+let savedTimer;
+function saved() {
+  const s = $("saved"); s.textContent = "已保存"; s.style.color = "var(--right)";
+  clearTimeout(savedTimer); savedTimer = setTimeout(() => { s.textContent = "改完自动保存"; s.style.color = ""; }, 1400);
+}
+
+// ---------- 文本视图 ----------
+const ta = $("ta"), hl = $("hl"), gutter = $("gutter");
+function highlight() {
+  const ls = ta.value.split("\n");
+  hl.innerHTML = ls.map(l => {
+    const t = l.trim();
+    if (!t) return " ";
+    if (t.startsWith("#")) return `<span class="c">${esc(l)}</span>`;
+    if (isRule(t)) return ruleHTML(t, false).h;
+    return esc(l);
+  }).join("\n") + "\n";
+  gutter.innerHTML = ls.map((l, i) => {
+    const t = l.trim(), bad = t && !t.startsWith("#") && isRule(t) && !parse(t).ok;
+    return `<div class="${bad ? "bad" : ""}" title="${bad ? "这条没生效" : ""}">${bad ? "!" : i + 1}</div>`;
+  }).join("");
+  ta.style.height = hl.offsetHeight + "px";
+}
+let textTimer;
+ta.oninput = () => {
+  highlight();
+  clearTimeout(textTimer);
+  textTimer = setTimeout(() => {
+    const seen = new Set();
+    lines = ta.value.split("\n").map(s => s.trim()).filter(s => s && !s.startsWith("#") && !seen.has(s) && seen.add(s));
+    render(); saved();
+  }, 500);
+};
+
+$("seg").onclick = e => {
+  const v = e.target.dataset.v; if (!v) return;
+  [...$("seg").children].forEach(s => s.classList.toggle("on", s.dataset.v === v));
+  $("listView").hidden = v !== "list"; $("textView").hidden = v !== "text";
+  if (v === "text") { ta.value = lines.join("\n"); highlight(); ta.focus(); }
+  else render();
+};
+
+render();
+</script>
+</body>
+</html>
