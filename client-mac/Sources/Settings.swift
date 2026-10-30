@@ -167,4 +167,35 @@ struct Settings {
         let hits = tokens.compactMap { canon[$0] }
         return hits.count == tokens.count ? hits : nil
     }
+
+    /// 结果里夹着一段热词表：从第一个热词起、按送给模型的顺序连着四个及以上（热词不到四个就要全部），
+    /// 后面还跟着别的话。去掉这一段返回剩下的；整句都是热词的不管，交给 echoedHotwords 复核。
+    /// 人声开头前有一小段静音时，模型偶尔把提示原样抄在真话前面，就是这个样子。
+    static func strippedEcho(_ text: String, _ words: [String]) -> (text: String, echo: [String])? {
+        let need = min(4, words.count)
+        guard need >= 2 else { return nil }
+        let order = Dictionary(words.enumerated().map { ($1.lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
+        let seps = "，,、。.；;！!？? \n"
+        var tokens: [(range: Range<String.Index>, at: Int?)] = []
+        var i = text.startIndex
+        while i < text.endIndex {
+            if seps.contains(text[i]) { i = text.index(after: i); continue }
+            var j = i
+            while j < text.endIndex, !seps.contains(text[j]) { j = text.index(after: j) }
+            tokens.append((i..<j, order[text[i..<j].lowercased()]))
+            i = j
+        }
+        for s in tokens.indices where tokens[s].at == 0 {
+            var e = s + 1
+            while e < tokens.count, let a = tokens[e - 1].at, tokens[e].at == a + 1 { e += 1 }
+            guard e - s >= need, e - s < tokens.count else { continue }
+            // 去到下一个词开头，抄的那段后面的标点一起去掉；在句末就从上一个词结尾去起
+            let cut = e < tokens.count ? tokens[s].range.lowerBound..<tokens[e].range.lowerBound
+                                       : tokens[s - 1].range.upperBound..<text.endIndex
+            var rest = text
+            rest.removeSubrange(cut)
+            return (rest.trimmingCharacters(in: .whitespacesAndNewlines), tokens[s..<e].map { words[$0.at!] })
+        }
+        return nil
+    }
 }

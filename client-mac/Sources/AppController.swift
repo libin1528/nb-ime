@@ -403,6 +403,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         guard id == previewId, !final else { return }
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         for e in previewEchoes { text = text.replacingOccurrences(of: e, with: "") }
+        if let cut = Settings.strippedEcho(text, Settings.hotwordList()) { text = cut.text }
         // 新冒出来的这一段要是整段都是热词，就是短片段遇上静音抄了热词表，这一段不显示
         let fresh = String(text.dropFirst(text.commonPrefix(with: previewShown).count))
         if Settings.echoedHotwords(fresh, Settings.hotwordList()) != nil {
@@ -443,7 +444,13 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             return
         }
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let echo = Settings.echoedHotwords(text, Settings.hotwordList())
+        let hot = Settings.hotwordList()
+        // 真话前面抄了一段热词表：直接去掉那段。复核那次送的是倒序热词，按倒序找
+        if let cut = Settings.strippedEcho(text, retryOf[id] == nil ? hot : hot.reversed()) {
+            Log.w("结果 \(id.prefix(8)) 前面抄了 \(cut.echo.count) 个热词，去掉：\(text) → \(cut.text)")
+            text = cut.text
+        }
+        let echo = Settings.echoedHotwords(text, hot)
         if let retry = retryOf.removeValue(forKey: id) {
             // 两次都抄：开头一致说明真说了这个词，只留它；不一致就是凭空抄的
             if let echo {
@@ -464,7 +471,6 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             Log.w("按规则替换：\(replaced.hits.joined(separator: "，"))")
             text = replaced.text
         }
-        let hot = Settings.hotwordList()
         let fixed = Hotfix.apply(text, hot)
         if fixed != text {
             Log.w("按读音换回热词：\(text) → \(fixed)")
