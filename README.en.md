@@ -86,16 +86,17 @@ The menu-bar icon is the status: red while recording, cycling while recognizing,
 
 ## Use it as context
 
-**Just want a working one first?** Clone it, open your AI coding tool (Claude Code, Codex, Cursor…), and send it this whole block:
+**Just want a working one first?** Open your AI coding tool (Claude Code, Codex, Cursor…) and send it this whole block; it clones the repo itself:
 
 ```text
-This repo is a macOS voice input method someone built only for themselves
-(hold a hotkey to talk, release to type). Follow docs/setup-with-agent.md
-to set up a working version on this Mac for me: read it and the README first,
-ask me everything you need in one go, pick the simplest path for me
-(macOS's built-in offline recognition if I have no GPU machine), then build,
-configure and verify each step yourself. Only hand me what I must do by hand,
-like granting permissions and pressing the hotkey. Talk to me in English.
+https://github.com/libin1528/nb-ime is a macOS voice input method someone built
+only for themselves (hold a hotkey to talk, release to type). Clone it, then
+follow its docs/setup-with-agent.md to set up a working version on this Mac
+for me: read that and the README first, ask me everything you need in one go,
+pick the simplest path for me (macOS's built-in offline recognition if I have
+no GPU machine), then build, configure and verify each step yourself. Only hand
+me what I must do by hand, like granting permissions and pressing the hotkey.
+Talk to me in English.
 ```
 
 No GPU machine needed: macOS 26's built-in offline recognition handles Mandarin, Cantonese, English, Japanese, Korean and five European languages, and the guide (in Chinese, which your agent reads fine) explains how to plug it in.
@@ -103,10 +104,11 @@ No GPU machine needed: macOS 26's built-in offline recognition handles Mandarin,
 To build a version of your own instead, say something like:
 
 ```text
-This repo is a macOS voice input method someone built for themselves. Read the
-README, docs/ and the git log first, and work out why each feature is built the
-way it is and which pitfalls they hit. Then help me build a version for me:
-I want recognition to run on ____, I mostly speak ____, and the feature I want most is ____.
+https://github.com/libin1528/nb-ime is a macOS voice input method someone built
+for themselves. Clone it and read the README, docs/ and the git log first, and
+work out why each feature is built the way it is and which pitfalls they hit.
+Then help me build a version for me: I want recognition to run on ____,
+I mostly speak ____, and the feature I want most is ____.
 ```
 
 Suggested reading order, for humans and AIs alike:

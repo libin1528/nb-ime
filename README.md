@@ -84,11 +84,12 @@
 
 ## 把它当上下文用
 
-**只想先有一个能用的？** clone 下来，打开你的 AI 编程工具（Claude Code、Codex、Cursor……），把这段整个发给它：
+**只想先有一个能用的？** 打开你的 AI 编程工具（Claude Code、Codex、Cursor……），把这段整个发给它，仓库它会自己 clone：
 
 ```text
-这个仓库是别人只为自己做的 Mac 语音输入法（按住快捷键说话，松开输入）。
-请按 docs/setup-with-agent.md 帮我在这台 Mac 上搭一个能用的版本：
+https://github.com/libin1528/nb-ime 是别人只为自己做的 Mac 语音输入法
+（按住快捷键说话，松开输入）。请先把它 clone 到本地，再按里面的
+docs/setup-with-agent.md 帮我在这台 Mac 上搭一个能用的版本：
 先读它和 README，一次把要问我的问清楚，再替我选一条最省事的路
 （没有显卡机就用 macOS 自带的离线识别），编译、配置、自己验证每一步，
 只有授权和按快捷键这类必须我亲手做的事再交给我。
@@ -99,7 +100,8 @@
 想按自己的想法改出一个自己的版本，就这样说：
 
 ```text
-这个仓库是别人给自己做的 Mac 语音输入法。先读 README、docs/ 和 git log，
+https://github.com/libin1528/nb-ime 是别人给自己做的 Mac 语音输入法。
+先 clone 到本地，读 README、docs/ 和 git log，
 弄清楚每个功能为什么这么做、踩过哪些坑。然后帮我做一个适合我自己的版本：
 识别想跑在 ____，我常说的语言是 ____，我最想要的功能是 ____。
 ```
