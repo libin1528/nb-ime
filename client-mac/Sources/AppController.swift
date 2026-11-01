@@ -31,14 +31,17 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private var sentSamples = 0
     private var peakLevel: Float = 0
     private var frontApp = ""
+    private var frontFocus: AXUIElement?      // 开始说话时的焦点，粘贴前对一下
     private var discard = Set<String>()
     private var taskAudio: [String: [Float]] = [:]
     private var taskMeta: [String: Meta] = [:]
-    private typealias Meta = (seconds: Double, app: String, audio: String?)   // audio：存下来的录音文件名
+    private typealias Meta = (seconds: Double, app: String, audio: String?, focus: AXUIElement?)   // audio：存下来的录音文件名
     // 复核任务 id → 原任务、第一次抄出来的热词、原任务松开的时间
     private var retryOf: [String: (orig: String, first: [String], started: Date?)] = [:]
     private var releasedAt: [String: Date] = [:]
     private var polishing = 0                     // 正在润色、还没粘贴的几句
+    private var waiting: (text: String, timer: Timer, then: () -> Void)?   // 等焦点回到输入框的那一句
+    static let focusWait = 4.0
 
     // 流式预览
     static let previewSeg = 2.0, previewOverlap = 0.5
@@ -219,6 +222,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             cancelRecording("上一次没收尾")
         }
         edits.finish()   // 又要说下一句了，上一句改成什么样就按现在的记
+        pasteWaiting()   // 上一句还在等焦点：要说下一句了，说明人已经回到输入框
         guard client.connected else {
             Log.w("按下没反应：没连上识别服务")
             capsule.show(.offline, for: 2.2)
@@ -235,6 +239,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             try recorder.start()
             let ms = Int(Date().timeIntervalSince(t0) * 1000)
             if ms > 300 { Log.w("开麦克风用了 \(ms)ms") }
+            frontFocus = EditWatcher.focused()
         } catch {
             capsule.show(.note("mic.slash", "麦克风打不开"), for: 2)
             Log.w("录音失败 \(error.localizedDescription)")
@@ -296,7 +301,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         send(data: "", final: true)
         releasedAt[id] = Date()
         armTimeout(id)
-        taskMeta[id] = (secs, frontApp, file)
+        taskMeta[id] = (secs, frontApp, file, frontFocus)
         Log.w("送出 \(id.prefix(8)) 时长 \(String(format: "%.1f", secs))s 音量峰值 \(String(format: "%.2f", peakLevel)) 麦克风 \(mic)")
         if sentSamples < 16000 / 5 {
             discard.insert(id)
@@ -507,14 +512,61 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             return
         }
         Log.w("输入 松开后 \(ms)ms，\(text.count) 字")
-        Paster.paste(text, restore: Settings.current.restoreClipboard)
-        capsule.show(.done(text.count), for: 1.6)
         History.add(HistoryEntry(text: text, date: Date(), seconds: meta?.seconds ?? 0, app: meta?.app ?? "", audio: meta?.audio))
-        if Settings.current.trackEdits {
-            edits.start(.init(recognized: recognized, typed: text, app: meta?.app ?? "", audio: meta?.audio, seconds: meta?.seconds ?? 0))
+        type(text, from: meta?.focus) { [weak self] in
+            guard let self else { return }
+            if Settings.current.trackEdits {
+                self.edits.start(.init(recognized: recognized, typed: text, app: meta?.app ?? "", audio: meta?.audio, seconds: meta?.seconds ?? 0))
+            }
+            self.onboarding.heard(text)
         }
-        onboarding.heard(text)
         refreshStatus()
+    }
+
+    // MARK: 粘贴
+
+    /// 粘到当前输入框。焦点刚好不在能打字的地方（点到了别处、弹出了什么），Cmd+V 会落空：
+    /// 先等它回到输入框，最多等 4 秒；还没回来也照粘，提示可以从菜单栏重新输入。
+    private func type(_ text: String, from start: AXUIElement?, then: @escaping () -> Void = {}) {
+        pasteWaiting()   // 前一句还在等：先把它粘出去，别让两句的顺序反了
+        guard let stray = EditWatcher.strayFocus(from: start) else {
+            Paster.paste(text, restore: Settings.current.restoreClipboard)
+            capsule.show(.done(text.count), for: 1.6)
+            then()
+            return
+        }
+        let app = NSWorkspace.shared.frontmostApplication
+        Log.w("焦点不在输入框（\(app?.localizedName ?? "") 的 \(stray)），等它回来再输入")
+        if let pid = app?.processIdentifier { EditWatcher.exposeTree(pid) }
+        capsule.show(.note("text.cursor", "等你回到输入框…"), for: Self.focusWait + 1)
+        let t0 = Date()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let waited = String(format: "%.1f", Date().timeIntervalSince(t0))
+            if EditWatcher.strayFocus(from: start) == nil {
+                Log.w("焦点回到输入框（等了 \(waited) 秒），输入")
+                self.pasteWaiting()
+            } else if Date().timeIntervalSince(t0) >= Self.focusWait {
+                let now = EditWatcher.focused().map(EditWatcher.role) ?? "?"
+                Log.w("等了 \(waited) 秒焦点还在 \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "") 的 \(now)，照样粘，可能没输进去")
+                self.pasteWaiting(missed: true)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        waiting = (text, timer, then)
+    }
+
+    private func pasteWaiting(missed: Bool = false) {
+        guard let w = waiting else { return }
+        waiting = nil
+        w.timer.invalidate()
+        Paster.paste(w.text, restore: Settings.current.restoreClipboard)
+        if missed {
+            capsule.show(.note("exclamationmark.triangle", "可能没输进去 · 菜单栏里可重新输入"), for: 3)
+        } else {
+            capsule.show(.done(w.text.count), for: 1.6)
+        }
+        w.then()
     }
 
     // MARK: 菜单栏
@@ -530,6 +582,13 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         m.onReconnect = { [weak self] in self?.connect() }
         m.onSettings = { [weak self] in self?.settingsWindow.show() }
+        m.onRetype = { [weak self] text in
+            // 等菜单收起、焦点回到原来的输入框再粘
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                Log.w("重新输入 \(text.count) 字")
+                self?.type(text, from: nil)
+            }
+        }
         m.onAccess = { [weak self] in self?.onboarding.show() }
         m.onLocalNetwork = {
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")!)

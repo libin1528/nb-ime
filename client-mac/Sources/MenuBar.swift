@@ -23,6 +23,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     var onSettings: (() -> Void)?
     var onAccess: (() -> Void)?
     var onLocalNetwork: (() -> Void)?
+    var onRetype: ((String) -> Void)?
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
@@ -72,10 +73,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
         menu.addItem(head)
         menu.addItem(.separator())
 
-        // 最近识别：二级菜单列最近 5 条，点一下复制；最新一条直接摆在外面
+        // 最近识别：二级菜单列最近 5 条，点一下复制；最新一条直接摆在外面，点一下重新输入到当前输入框
         let recent = Array(History.items.prefix(5))
         let sub = NSMenu()
-        for e in recent { sub.addItem(copyItem(e.text, width: 300)) }
+        for e in recent { sub.addItem(recentLine(e.text, width: 300) { Paster.copy(e.text) }) }
         if recent.isEmpty {
             let none = NSMenuItem(title: "还没有记录", action: nil, keyEquivalent: "")
             none.isEnabled = false
@@ -84,7 +85,9 @@ final class MenuBar: NSObject, NSMenuDelegate {
         let recentItem = NSMenuItem(title: "最近识别", action: nil, keyEquivalent: "")
         recentItem.submenu = sub
         menu.addItem(recentItem)
-        if let last = recent.first { menu.addItem(copyItem(last.text, width: 200, hint: "复制")) }
+        if let last = recent.first {
+            menu.addItem(recentLine(last.text, width: 200, hint: "重新输入") { [weak self] in self?.onRetype?(last.text) })
+        }
         menu.addItem(.separator())
 
         switch state.status {
@@ -114,8 +117,8 @@ final class MenuBar: NSObject, NSMenuDelegate {
         return m
     }
 
-    /// 「“提个 bug，我一说 ClawChat，它就…”      复制」
-    private func copyItem(_ text: String, width: CGFloat, hint: String? = nil) -> NSMenuItem {
+    /// 「“提个 bug，我一说 ClawChat，它就…”      重新输入」
+    private func recentLine(_ text: String, width: CGFloat, hint: String? = nil, _ f: @escaping () -> Void) -> NSMenuItem {
         let font = NSFont.menuFont(ofSize: 0)
         var shown = text.replacingOccurrences(of: "\n", with: " ")
         let fits = { (s: String) in ("“\(s)”" as NSString).size(withAttributes: [.font: font]).width <= width }
@@ -123,7 +126,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
             while !shown.isEmpty, !fits(shown + "…") { shown.removeLast() }
             shown += "…"
         }
-        let m = item("“\(shown)”", "") { Paster.copy(text) }
+        let m = item("“\(shown)”", "", f)
         m.toolTip = text
         if let hint {
             let ps = NSMutableParagraphStyle()

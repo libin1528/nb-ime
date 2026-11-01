@@ -40,7 +40,7 @@ final class EditWatcher {
         guard let value = Self.value(el) else {
             // Electron 应用（Claude、Slack……）默认不开辅助功能树，读不到输入框；请它打开一次再读
             if !retried, let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
-                AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), "AXManualAccessibility" as CFString, kCFBooleanTrue)
+                Self.exposeTree(pid)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.begin(info, retried: true) }
                 return
             }
@@ -108,16 +108,35 @@ final class EditWatcher {
 
     // MARK: 辅助功能接口
 
-    private static func focused() -> AXUIElement? {
+    static func focused() -> AXUIElement? {
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.3)
         var f: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &f) == .success,
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &f) == .success,
               let f, CFGetTypeID(f) == AXUIElementGetTypeID() else { return nil }
         let el = f as! AXUIElement
         AXUIElementSetMessagingTimeout(el, 0.3)   // 目标应用卡住时别把我们也拖住
         return el
     }
 
-    private static func role(_ el: AXUIElement) -> String {
+    /// 焦点落在不能打字的地方时返回它的角色（比如 AXWindow），用来决定粘贴前要不要等一等。
+    /// 读不到焦点（应用不开辅助功能）、焦点还是开始说话时那个、或者是个输入框，都返回 nil
+    static func strayFocus(from start: AXUIElement?) -> String? {
+        guard let el = focused() else { return nil }
+        if let start, CFEqual(el, start) { return nil }
+        let r = role(el)
+        if ["AXTextField", "AXTextArea", "AXComboBox"].contains(r) { return nil }
+        var range: CFTypeRef?   // 网页编辑器、终端之类角色五花八门，有光标就算
+        if AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &range) == .success { return nil }
+        return r
+    }
+
+    /// Electron 应用（Claude、Slack……）默认不开辅助功能树，焦点只读得到整个窗口；请它打开
+    static func exposeTree(_ pid: pid_t) {
+        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    }
+
+    static func role(_ el: AXUIElement) -> String {
         var r: CFTypeRef?
         AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &r)
         return r as? String ?? "?"
