@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>胶囊截图背景</title>
+<!-- 截胶囊时摆在它后面的「桌面」：1000×420 点，渲染成 2x 的 PNG，由 backdrop 小工具铺在屏幕底部正中。
+     ?dark 换深色。里面的字都是编的。 -->
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1000px; height: 420px; overflow: hidden; }
+  body { font: 15px/1.7 -apple-system, "PingFang SC", sans-serif; position: relative;
+    background:
+      radial-gradient(60% 90% at 12% 10%, #ffd9c7 0%, transparent 60%),
+      radial-gradient(55% 80% at 88% 0%, #e3d7ff 0%, transparent 62%),
+      radial-gradient(70% 90% at 70% 100%, #ffc9dc 0%, transparent 60%),
+      radial-gradient(60% 80% at 10% 100%, #cfe6ff 0%, transparent 60%),
+      #f7eef3; }
+  .blob { position: absolute; border-radius: 50%; filter: blur(2px); }
+  .b1 { width: 300px; height: 300px; left: 250px; top: 290px; background: linear-gradient(135deg, #ff9a7a, #ff5f8f); opacity: .55; }
+  .b2 { width: 260px; height: 260px; right: 230px; top: 300px; background: linear-gradient(135deg, #8f7bff, #5aa2ff); opacity: .45; }
+  .win { position: absolute; left: 150px; top: 114px; width: 700px; height: 182px; border-radius: 16px; background: rgba(255,255,255,.86);
+    box-shadow: 0 0 0 .5px rgba(0,0,0,.08), 0 18px 50px rgba(80,40,90,.18); overflow: hidden; }
+  .tb { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid rgba(0,0,0,.06); }
+  .tb i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+  .tb i:nth-child(2) { background: #febc2e; } .tb i:nth-child(3) { background: #28c840; }
+  .tb b { margin-left: 14px; font-size: 13px; font-weight: 600; color: #3a3a3c; }
+  .doc { padding: 12px 30px; color: #2c2c2e; }
+  .doc h3 { font-size: 19px; margin-bottom: 6px; }
+  .doc p { color: #48484a; }
+  .doc .chip { display: inline-block; padding: 0 8px; border-radius: 6px; background: #ffe6dd; color: #c2410c; font-size: 13px; }
+  .doc .chip.b { background: #e8e3ff; color: #5b3fd6; }
+  .caret { display: inline-block; width: 2px; height: 19px; background: #ff3d6e; vertical-align: -3px; margin-left: 2px; }
+  body.dark { background:
+      radial-gradient(60% 90% at 12% 10%, #4a2a3c 0%, transparent 60%),
+      radial-gradient(55% 80% at 88% 0%, #2c2a5c 0%, transparent 62%),
+      radial-gradient(70% 90% at 70% 100%, #5a2240 0%, transparent 60%),
+      #17151f; }
+  body.dark .win { background: rgba(40,38,48,.9); box-shadow: 0 0 0 .5px rgba(255,255,255,.1), 0 18px 50px rgba(0,0,0,.5); }
+  body.dark .tb { border-color: rgba(255,255,255,.08); } body.dark .tb b { color: #e5e5ea; }
+  body.dark .doc, body.dark .doc p { color: #e5e5ea; }
+  body.dark .doc .chip { background: #5a2f24; color: #ffb59c; } body.dark .doc .chip.b { background: #3a3170; color: #c9bcff; }
+</style>
+</head>
+<body>
+<div class="blob b1"></div><div class="blob b2"></div>
+<div class="win">
+  <div class="tb"><i></i><i></i><i></i><b>周会笔记</b></div>
+  <div class="doc">
+    <h3>灯塔计划 · 第 12 周</h3>
+    <p>上线前还差两件事：<span class="chip">登录页</span> 换新的设计稿，<span class="chip b">Kestrel</span> 的接口压测。</p>
+        <p>下一步<span class="caret"></span></p>
+  </div>
+</div>
+<script>if (location.search.includes('dark')) document.body.classList.add('dark')</script>
+</body>
+</html>

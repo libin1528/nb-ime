@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 方向 C「NB 字标」：现在图标的精修版，B 的两个弧往外各荡开一道声波 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff7a59"/>
+      <stop offset="0.5" stop-color="#ff3d6e"/>
+      <stop offset="1" stop-color="#6a4dff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.2" r="0.7">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#5a1640" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#glow)"/>
+  <g transform="translate(-34 0)"><g filter="url(#shadow)" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="68">
+    <path d="M238 692V340L432 692V340"/>
+    <path d="M552 340V692H640a92 92 0 0 0 0-184H552M552 508H624a84 84 0 0 0 0-168H552"/>
+  </g>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-width="34">
+    <path d="M776 380a150 150 0 0 1 0 200" opacity="0.75"/>
+    <path d="M830 330a220 220 0 0 1 0 300" opacity="0.45"/>
+  </g></g>
+</svg>

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-Hans"><head><meta charset="utf-8"><title>首页改前改后</title>
+<!-- 首页改前改后对照。两张整页截图 ba-old.png、ba-new.png 是用 marked 把 README.md 渲染成近似 GitHub 的页面再截的（改前是 dcbbc18 的版本），放在这个文件旁边再渲染；截图不进仓库，这里只留拼好的 ../before-after.png。 -->
+<style>
+body{margin:0;background:#f5f5f7;font:15px/1.5 -apple-system,"PingFang SC",sans-serif;color:#1d1d1f}
+.page{width:1200px;padding:44px 48px;box-sizing:border-box}
+h1{font-size:28px;margin:0 0 4px;font-weight:650}p.lead{color:#6e6e73;margin:0 0 26px}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;align-items:start}
+.col h2{font-size:17px;margin:0 0 10px;display:flex;gap:10px;align-items:baseline}.col h2 small{color:#6e6e73;font-weight:400;font-size:13px}
+.shot{background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,.06),0 10px 30px rgba(0,0,0,.06)}
+.shot img{width:100%;display:block}
+ul{margin:0 0 22px;padding-left:20px;color:#3a3a3c;font-size:14px}
+</style></head><body><div class="page">
+<h1>NB 输入法首页 · 改前改后</h1>
+<p class="lead">左边是 dcbbc18 的 README.md，右边是这次改完的。英文、日文两版结构一样，图换成各自语言的。</p>
+<div class="cols">
+<div class="col"><h2>改前 <small>10-29 以后的功能都没写进去</small></h2>
+<ul><li>动图背景是渐变色块，上面露着半截界面文字</li><li>八个胶囊状态，「没听到声音」还是旧文案</li><li>设置截图是快捷键页（6 个标签，没有润色）和润色页的改前改后</li><li>没有讲识别结果在粘贴前过了哪些处理</li></ul>
+<div class="shot"><img src="ba-old.png"></div></div>
+<div class="col"><h2>改后 <small>补到 11-01 的提交</small></h2>
+<ul><li>图标换成选定的 B「声音落成光标」</li><li>新动图：胶囊浮在一个编的笔记窗口上，真 app 录的</li><li>加「它是怎么工作的」：架构图、一句话的处理过程（编的例句，每步实跑）</li><li>十个胶囊状态，加了焦点跑了、可能没输进去；设置四页拼图（真 app、编的热词和历史）</li><li>借鉴表、踩坑清单、本地数据和调试命令补上麦克风、一定替换、抄热词表、删重说、等焦点、改字记录、孤儿进程</li><li>图都有深色版，GitHub 深色模式下自动换</li><li>「把它当上下文用」开头加了一键提示词，指向给 agent 的搭建引导 docs/setup-with-agent.md</li></ul>
+<div class="shot"><img src="ba-new.png"></div></div>
+</div></div></body></html>

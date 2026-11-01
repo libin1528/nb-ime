@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<title>NB 输入法 logo 候选</title>
+<style>
+  :root { --ink: #1d1d1f; --sub: #6e6e73; --line: #e5e5ea; --card: #fff; --bg: #f5f5f7; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, "PingFang SC", "Hiragino Sans", sans-serif; }
+  .page { width: 1720px; padding: 56px 64px 64px; }
+  h1 { font-size: 30px; font-weight: 650; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .lead { color: var(--sub); margin: 0 0 36px; font-size: 16px; }
+  .lead b { color: var(--ink); font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 200px repeat(3, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+  .col { background: var(--card); border-radius: 22px; padding: 28px 28px 24px; box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.05); display: flex; flex-direction: column; gap: 18px; }
+  .col.now { background: transparent; box-shadow: none; padding: 28px 8px; border: 1.5px dashed #d2d2d7; }
+  .tag { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--sub); letter-spacing: .02em; }
+  .tag i { font-style: normal; width: 26px; height: 26px; border-radius: 8px; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 14px; }
+  h2 { font-size: 22px; margin: 0; font-weight: 650; }
+  .pitch { color: var(--sub); margin: -10px 0 0; min-height: 66px; }
+  .hero { display: flex; gap: 14px; align-items: flex-end; }
+  .hero figure { margin: 0; text-align: center; } .hero img { mix-blend-mode: multiply; }
+  .hero figcaption { font-size: 12px; color: var(--sub); margin-top: 2px; }
+  .sizes { display: flex; align-items: flex-end; gap: 18px; padding: 14px 16px; border-radius: 14px; background: #f5f5f7; }
+  .sizes.dark { background: #1c1c1e; }
+  .sizes span { font-size: 11px; color: #8e8e93; display: block; text-align: center; margin-top: 4px; }
+  .bar { display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 14px; border-radius: 10px; font-size: 12px; }
+  .bar.light { background: rgba(246,246,248,.96); border: 1px solid var(--line); color: #1d1d1f; }
+  .bar.dark { background: #2a2a2e; color: #f5f5f7; }
+  .bar .st { display: flex; align-items: center; gap: 22px; }
+  .bar .st div { display: flex; flex-direction: column; align-items: center; }
+  .bar svg { height: 15px; width: 26px; display: block; overflow: visible; }
+  .legend { display: flex; justify-content: flex-end; gap: 22px; font-size: 11px; color: #8e8e93; margin: -12px 14px 0 0; }
+  .legend span { width: 40px; text-align: center; }
+  .label { font-size: 12px; font-weight: 600; color: var(--sub); text-transform: none; margin-bottom: -10px; }
+  .pros { margin: 0; padding: 0; list-style: none; font-size: 14px; display: grid; gap: 6px; }
+  .pros li { padding-left: 22px; position: relative; }
+  .pros li::before { content: "＋"; position: absolute; left: 0; color: #34c759; font-weight: 700; }
+  .pros li.con::before { content: "－"; color: #ff9500; }
+  .note { margin-top: 28px; color: var(--sub); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>NB 输入法 · logo 候选</h1>
+  <p class="lead">三个方向，每个都给了 <b>Codex 出的效果图</b> 和 <b>能用代码画出来的矢量稿</b>（选定后照矢量稿改 <code>Glyph.swift</code>，菜单栏的单色图也跟着换）。</p>
+
+  <div class="grid">
+    <!-- 现在 -->
+    <div class="col now">
+      <div class="tag">现在</div>
+      <img src="../../readme/icon.png" width="150" style="margin-left:-10px">
+      <p class="pitch" style="min-height:0">「NB」加两道声波，交互稿 v1 的方案 B。</p>
+      <div class="label">菜单栏</div>
+      <div class="bar light" style="padding:0 12px"><svg viewBox="2 22 99 56"><use href="#m-c"/></svg></div>
+      <div class="bar dark" style="padding:0 12px"><svg viewBox="2 22 99 56" style="color:#fff"><use href="#m-c"/></svg></div>
+    </div>
+
+    <!-- A -->
+    <div class="col">
+      <div class="tag"><i>A</i>玻璃胶囊</div>
+      <p class="pitch">图标就是按住说话时浮出来的那颗胶囊：红色麦克风、跳动的声波、Liquid Glass 的玻璃边。认得胶囊就认得它。</p>
+      <div class="hero">
+        <figure><img src="../logo/codex-A.png" width="180"><figcaption>Codex 效果图</figcaption></figure>
+        <figure><img src="../logo/A-capsule.svg" width="180"><figcaption>矢量稿</figcaption></figure>
+      </div>
+      <div class="sizes"><div><img src="../logo/A-capsule.svg" width="64"><span>64</span></div><div><img src="../logo/A-capsule.svg" width="32"><span>32</span></div><div><img src="../logo/A-capsule.svg" width="16"><span>16</span></div></div>
+      <div class="label">菜单栏 · 平时 / 录音 / 识别中 / 连不上</div>
+      <div class="bar light"><span>浅色</span><div class="st"><svg viewBox="0 0 40 24"><use href="#m-a"/></svg><svg viewBox="0 0 40 24"><use href="#m-a-rec"/></svg><svg viewBox="0 0 40 24"><use href="#m-a-think"/></svg><svg viewBox="0 0 40 24" opacity=".35"><use href="#m-a"/></svg></div></div>
+      <div class="bar dark"><span>深色</span><div class="st" style="color:#fff"><svg viewBox="0 0 40 24"><use href="#m-a"/></svg><svg viewBox="0 0 40 24"><use href="#m-a-rec"/></svg><svg viewBox="0 0 40 24"><use href="#m-a-think"/></svg><svg viewBox="0 0 40 24" opacity=".35"><use href="#m-a"/></svg></div></div>
+      <ul class="pros">
+        <li>和产品最有记忆点的界面直接挂钩，品牌色不变</li>
+        <li>菜单栏录音时圆点变红，和胶囊一致</li>
+        <li class="con">玻璃质感用代码画要多几层渐变；16px 时声波糊成一条</li>
+      </ul>
+    </div>
+
+    <!-- B -->
+    <div class="col">
+      <div class="tag"><i>B</i>声音落成光标</div>
+      <p class="pitch">几道声波由低到高再落下，最后一道变成打字的光标：说出来的话变成字，这就是它干的全部事情。</p>
+      <div class="hero">
+        <figure><img src="../logo/codex-B.png" width="180"><figcaption>Codex 效果图</figcaption></figure>
+        <figure><img src="../logo/B-caret.svg" width="180"><figcaption>矢量稿</figcaption></figure>
+      </div>
+      <div class="sizes"><div><img src="../logo/B-caret.svg" width="64"><span>64</span></div><div><img src="../logo/B-caret.svg" width="32"><span>32</span></div><div><img src="../logo/B-caret.svg" width="16"><span>16</span></div></div>
+      <div class="label">菜单栏 · 平时 / 录音 / 识别中 / 连不上</div>
+      <div class="bar light"><span>浅色</span><div class="st"><svg viewBox="0 0 40 24"><use href="#m-b"/></svg><svg viewBox="0 0 40 24"><use href="#m-b-rec"/></svg><svg viewBox="0 0 40 24"><use href="#m-b-think"/></svg><svg viewBox="0 0 40 24" opacity=".35"><use href="#m-b"/></svg></div></div>
+      <div class="bar dark"><span>深色</span><div class="st" style="color:#fff"><svg viewBox="0 0 40 24"><use href="#m-b"/></svg><svg viewBox="0 0 40 24"><use href="#m-b-rec"/></svg><svg viewBox="0 0 40 24"><use href="#m-b-think"/></svg><svg viewBox="0 0 40 24" opacity=".35"><use href="#m-b"/></svg></div></div>
+      <ul class="pros">
+        <li>几何形最简单，代码最好画，小尺寸也清楚</li>
+        <li>深色底在 Dock 里和一排彩色图标区分得开</li>
+        <li class="con">换掉了现在的暖色底，和胶囊、首页的配色要一起看</li>
+      </ul>
+    </div>
+
+    <!-- C -->
+    <div class="col">
+      <div class="tag"><i>C</i>NB 字标</div>
+      <p class="pitch">留着现在的「NB + 声波」，重新画：笔画收细、字距拉开、声波从两道荡开的弧改成渐隐，整体往中间收。</p>
+      <div class="hero">
+        <figure><img src="../logo/codex-C.png" width="180"><figcaption>Codex 效果图</figcaption></figure>
+        <figure><img src="../logo/C-monogram.svg" width="180"><figcaption>矢量稿</figcaption></figure>
+      </div>
+      <div class="sizes"><div><img src="../logo/C-monogram.svg" width="64"><span>64</span></div><div><img src="../logo/C-monogram.svg" width="32"><span>32</span></div><div><img src="../logo/C-monogram.svg" width="16"><span>16</span></div></div>
+      <div class="label">菜单栏 · 平时 / 录音 / 识别中 / 连不上</div>
+      <div class="bar light"><span>浅色</span><div class="st"><svg viewBox="2 22 99 56"><use href="#m-c"/></svg><svg viewBox="2 22 99 56"><use href="#m-c-rec"/></svg><svg viewBox="2 22 99 56"><use href="#m-c-think"/></svg><svg viewBox="2 22 99 56" opacity=".35"><use href="#m-c"/></svg></div></div>
+      <div class="bar dark"><span>深色</span><div class="st" style="color:#fff"><svg viewBox="2 22 99 56"><use href="#m-c"/></svg><svg viewBox="2 22 99 56"><use href="#m-c-rec"/></svg><svg viewBox="2 22 99 56"><use href="#m-c-think"/></svg><svg viewBox="2 22 99 56" opacity=".35"><use href="#m-c"/></svg></div></div>
+      <ul class="pros">
+        <li>改动最小，名字直接写在图标上</li>
+        <li>菜单栏单色图可以不换，代码几乎不动</li>
+        <li class="con">字母图标在 Dock 里辨识度一般，「NB」也不说明它是干什么的</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">矢量稿源文件：design/homepage/logo/*.svg · Codex 效果图：design/homepage/logo/codex-*.png · 选定之前不动 AppIcon.icns</p>
+</div>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <!-- A：胶囊轮廓 + 圆点 + 声波 -->
+    <g id="m-a-shell" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="1.6" y="3.1" width="36.8" height="17.8" rx="8.9"/></g>
+    <g id="m-a-bars" fill="currentColor"><rect x="18" y="9" width="2.4" height="6" rx="1.2"/><rect x="22.4" y="7" width="2.4" height="10" rx="1.2"/><rect x="26.8" y="8.5" width="2.4" height="7" rx="1.2"/><rect x="31.2" y="10" width="2.4" height="4" rx="1.2"/></g>
+    <g id="m-a"><use href="#m-a-shell"/><circle cx="10.6" cy="12" r="4.2" fill="currentColor"/><use href="#m-a-bars"/></g>
+    <g id="m-a-rec"><use href="#m-a-shell"/><circle cx="10.6" cy="12" r="4.2" fill="#ff3b30"/><use href="#m-a-bars"/></g>
+    <g id="m-a-think"><use href="#m-a-shell"/><circle cx="10.6" cy="12" r="4.2" fill="currentColor" opacity=".35"/><g fill="currentColor"><rect x="18" y="9" width="2.4" height="6" rx="1.2"/><rect x="22.4" y="7" width="2.4" height="10" rx="1.2" opacity=".3"/><rect x="26.8" y="8.5" width="2.4" height="7" rx="1.2"/><rect x="31.2" y="10" width="2.4" height="4" rx="1.2" opacity=".3"/></g></g>
+    <!-- B：声波 + 光标 -->
+    <g id="m-b-caret" fill="currentColor"><rect x="30.6" y="2" width="2.8" height="20" rx="1.4"/><rect x="26.8" y="1.6" width="10.4" height="2.8" rx="1.4"/><rect x="26.8" y="19.6" width="10.4" height="2.8" rx="1.4"/></g>
+    <g id="m-b"><g fill="currentColor"><rect x="2" y="9" width="3.4" height="6" rx="1.7"/><rect x="8" y="5.5" width="3.4" height="13" rx="1.7"/><rect x="14" y="3" width="3.4" height="18" rx="1.7"/><rect x="20" y="7" width="3.4" height="10" rx="1.7"/></g><use href="#m-b-caret"/></g>
+    <g id="m-b-rec"><g fill="#ff3b30"><rect x="2" y="9" width="3.4" height="6" rx="1.7"/><rect x="8" y="5.5" width="3.4" height="13" rx="1.7"/><rect x="14" y="3" width="3.4" height="18" rx="1.7"/><rect x="20" y="7" width="3.4" height="10" rx="1.7"/></g><use href="#m-b-caret"/></g>
+    <g id="m-b-think"><g fill="currentColor"><rect x="2" y="9" width="3.4" height="6" rx="1.7"/><rect x="8" y="5.5" width="3.4" height="13" rx="1.7" opacity=".3"/><rect x="14" y="3" width="3.4" height="18" rx="1.7"/><rect x="20" y="7" width="3.4" height="10" rx="1.7" opacity=".3"/></g><use href="#m-b-caret"/></g>
+    <!-- C / 现在：照搬 Glyph.swift 的 letters() 和 wave() -->
+    <path id="m-c-letters" d="M8 72V28L30 72V28M44 28V72M44 28H52a11 11 0 0 1 0 22H44M44 50H54a11 11 0 0 1 0 22H44" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <path id="m-c-w1" d="M78 38a18 18 0 0 1 0 24" fill="none" stroke-width="7" stroke-linecap="round"/>
+    <path id="m-c-w2" d="M88 30a28 28 0 0 1 0 40" fill="none" stroke-width="7" stroke-linecap="round"/>
+    <g id="m-c"><use href="#m-c-letters"/><use href="#m-c-w1" stroke="currentColor"/><use href="#m-c-w2" stroke="currentColor"/></g>
+    <g id="m-c-rec"><use href="#m-c-letters"/><use href="#m-c-w1" stroke="#ff3b30"/><use href="#m-c-w2" stroke="#ff3b30"/></g>
+    <g id="m-c-think"><use href="#m-c-letters"/><use href="#m-c-w1" stroke="currentColor"/><use href="#m-c-w2" stroke="currentColor" opacity=".3"/></g>
+  </defs>
+</svg>
+</body>
+</html>

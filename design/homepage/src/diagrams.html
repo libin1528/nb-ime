@@ -1,0 +1,174 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>首页示意图</title>
+<!-- 首页的两张示意图。?d=arch|pipe &lang=zh|en|ja &theme=light|dark，宽 960，用 headless Chrome 按 2x 截成 PNG（见 render.sh）。
+     pipe 里的例句是编的，每一步的结果是 2026-11-01 用截图版 app 实跑出来的。 -->
+<style>
+  :root { --bg: #ffffff; --card: #fff; --ink: #1d1d1f; --sub: #6e6e73; --faint: #a1a1a6; --line: #e8e8ed; --soft: #f3f3f6;
+    --del: #d93a3a; --delbg: #fde8e8; --ins: #1f8f4e; --insbg: #e3f6ea; --accent: #ff3d6e; --pill: #f1eefe; --pillink: #5b3fd6; }
+  body.dark { --bg: #0d1117; --card: #1c1c21; --ink: #f5f5f7; --sub: #a1a1a6; --faint: #6e6e73; --line: #2c2c33; --soft: #24242b;
+    --del: #ff7b7b; --delbg: #3b1d22; --ins: #5fd38e; --insbg: #173322; --pill: #2a2547; --pillink: #c3b6ff; }
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 960px; background: var(--bg); color: var(--ink); font: 15px/1.55 -apple-system, "PingFang SC", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif; -webkit-font-smoothing: antialiased; }
+  .wrap { padding: 28px 40px 30px; }
+  h2 { font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
+  .lead { color: var(--sub); margin: 4px 0 26px; }
+  .grad { background: linear-gradient(90deg, #ff7a59, #ff3d6e 55%, #6a4dff); }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .92em; }
+
+  /* arch */
+  .arch { display: grid; grid-template-columns: 1fr 210px 1fr; align-items: stretch; }
+  .box { background: var(--card); border-radius: 20px; padding: 22px 22px 18px; box-shadow: 0 0 0 1px var(--line), 0 10px 30px rgba(20,10,40,.06); }
+  .box h3 { font-size: 17px; font-weight: 650; display: flex; align-items: center; gap: 10px; }
+  .box h3 .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #fff; flex: none; }
+  .box .where { color: var(--faint); font-size: 13px; margin: 2px 0 14px 44px; }
+  .item { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .item:first-of-type { border-top: 0; }
+  .item b { font-weight: 600; display: block; }
+  .item span { color: var(--sub); font-size: 13.5px; }
+  .item .n { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--soft); color: var(--sub); font-size: 12px; font-weight: 700; display: grid; place-items: center; margin-top: 1px; }
+  .model { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--soft); margin-top: 10px; }
+  .model b { font-weight: 600; }
+  .model small { color: var(--sub); font-size: 12.5px; display: block; }
+  .model em { font-style: normal; font-weight: 650; font-size: 13px; color: var(--accent); white-space: nowrap; }
+  .right { display: grid; gap: 16px; align-content: stretch; }
+  .local { border-radius: 20px; padding: 16px 20px; border: 1.5px dashed var(--line); }
+  .local b { font-weight: 650; font-size: 14.5px; }
+  .local p { color: var(--sub); font-size: 13px; margin-top: 4px; }
+  .tunnel { display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 0 14px; position: relative; }
+  .lane { position: relative; text-align: center; font-size: 12.5px; color: var(--sub); }
+  .lane .line { height: 2px; border-radius: 2px; margin: 6px 0; position: relative; }
+  .lane .line::after { content: ""; position: absolute; top: -4px; border: 5px solid transparent; }
+  .lane.r .line::after { right: -2px; border-left: 7px solid #6a4dff; border-right: 0; }
+  .lane.l .line { background: linear-gradient(270deg, #ff7a59, #ff3d6e 55%, #6a4dff); }
+  .lane.l .line::after { left: -2px; border-right: 7px solid #ff7a59; border-left: 0; }
+  .lane b { color: var(--ink); font-weight: 600; font-size: 13px; }
+  .shield { align-self: center; margin-top: 6px; display: inline-flex; gap: 6px; align-items: center; padding: 6px 12px; border-radius: 999px; background: var(--pill); color: var(--pillink); font-size: 12.5px; font-weight: 600; }
+
+  /* pipe */
+  .steps { position: relative; display: grid; gap: 10px; }
+  .step { display: grid; grid-template-columns: 208px 1fr; gap: 18px; align-items: center; background: var(--card); border-radius: 16px; padding: 14px 20px 14px 16px; box-shadow: 0 0 0 1px var(--line); }
+  .step .k { display: flex; gap: 12px; align-items: center; }
+  .step .k i { flex: none; font-style: normal; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: var(--soft); color: var(--sub); }
+  .step .k b { font-weight: 650; display: block; line-height: 1.3; }
+  .step .k small { display: block; color: var(--faint); font-size: 12px; line-height: 1.35; margin-top: 2px; }
+  .step .t { font-size: 17px; letter-spacing: .01em; line-height: 1.6; }
+  .step.skip .t { color: var(--sub); }
+  del { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--del); background: var(--delbg); border-radius: 4px; padding: 0 2px; }
+  ins { text-decoration: none; color: var(--ins); background: var(--insbg); border-radius: 4px; padding: 0 3px; font-weight: 600; }
+  .why { display: block; font-size: 12.5px; color: var(--sub); margin-top: 2px; letter-spacing: 0; }
+  .step.final { box-shadow: 0 0 0 1.5px transparent; background: linear-gradient(var(--card), var(--card)) padding-box, linear-gradient(90deg, #ff7a59, #ff3d6e 55%, #6a4dff) border-box; border: 1.5px solid transparent; }
+  .step.final .k i { color: #fff; background: linear-gradient(135deg, #ff7a59, #ff3d6e 55%, #6a4dff); }
+  .field { display: flex; align-items: center; gap: 2px; padding: 8px 14px; border-radius: 10px; background: var(--soft); font-size: 17px; }
+  .caret { width: 2px; height: 20px; background: var(--accent); margin-left: 1px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--sub); margin-top: 8px; }
+  .checks span::before { content: "✓ "; color: var(--ins); font-weight: 700; }
+  .foot { margin-top: 16px; color: var(--faint); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+<script>
+const q = new URLSearchParams(location.search);
+const L = q.get('lang') || 'zh', D = q.get('d') || 'arch';
+if (q.get('theme') === 'dark') document.body.classList.add('dark');
+document.documentElement.lang = { zh: 'zh-Hans', en: 'en', ja: 'ja' }[L];
+
+const mic = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3" fill="#fff"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
+const gpu = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2.5"/><circle cx="9" cy="12" r="2.6"/><path d="M14.5 10h3M14.5 14h3M7 18v2M12 18v2M17 18v2"/></svg>';
+const lock = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+
+const T = {
+  zh: {
+    arch: { h: '它是怎么工作的', lead: '客户端只管录音、显示和输入；识别和润色都在局域网里的一台显卡机器上，经 ssh 隧道连过去。',
+      mac: '你的 Mac', macw: 'NB 输入法 · 常驻菜单栏 · Swift / AppKit',
+      items: [['按住快捷键开始录音', '用设置里选的麦克风；一直没声音就不送去识别'], ['胶囊跟着你说话', '波形跟着音量跳，每 2 秒出一次预览文字'], ['松开，整理文字', '一定替换 → 读音纠正 → 删重说 → 润色 → 检查'], ['粘进输入框', '焦点跑了就等它回来；之后记下你改了哪些字']],
+      up: '录音', upd: '预览一条连接、完整一条连接', down: '文字', downd: '识别结果、润色结果', safe: '录音和文字不出局域网',
+      gpu: '局域网里的显卡机器', gpuw: 'Windows · RX 6700 XT · 开机自启',
+      m1: ['识别', 'CapsWriter-Offline · Qwen3-ASR-1.7B'], m1t: '松开后约 0.8 秒', m2: ['润色', 'llama.cpp · Qwen3.5-4B Q8'], m2t: '平均约 0.5 秒',
+      note: '热词表跟着每次请求一起送过去', local: ['只存在这台 Mac 上', '设置、热词、最近 200 条历史、最近 20 段录音、改字记录'] },
+    pipe: { h: '一句话是怎么变成输入的字的', lead: '松开快捷键以后，识别结果要过这几步才粘进输入框。每一步都写进日志，哪一步改了什么一查就知道。',
+      steps: [
+        ['识别', 'Qwen3-ASR', '嗯下周一把<u>登塔计划</u>新的设新的设计稿发给<u>凯斯翠</u>那边', '先看结果前面有没有抄进一串热词表，有就去掉'],
+        ['一定替换', '热词页写的「凯斯翠=Kestrel」', '嗯下周一把登塔计划新的设新的设计稿发给<del>凯斯翠</del><ins>Kestrel</ins>那边', '读音不一样的错、拆不成拼音的英文，靠规则'],
+        ['读音纠正', '读音、声调和热词一样', '嗯下周一把<del>登塔计划</del><ins>灯塔计划</ins>新的设新的设计稿发给Kestrel那边', '挨着数字、量词的不换'],
+        ['删重说', '代码先删，不靠模型', '嗯下周一把灯塔计划<del>新的设</del>新的设计稿发给Kestrel那边', '一字不差、紧挨着说了两遍的一段（至少 3 个字），只留后一遍'],
+        ['润色', 'Qwen3.5-4B · 去口误、整理格式都是「中」', '<del>嗯</del>下周一把灯塔计划新的设计稿发给<ins> </ins>Kestrel<ins> </ins>那边<ins>。</ins>', '删语气词、补标点；说了第一第二才列清单'],
+      ],
+      fin: ['检查，然后输入', '不过关就输入原文'], out: '下周一把灯塔计划新的设计稿发给 Kestrel 那边。',
+      checks: ['只删不加', '热词都在', '没删人称', '没删太多', '3 秒内'],
+      foot: '例句是编的；每一步的结果都是用 app 实际跑出来的，润色这一步 0.43 秒。' } },
+  en: {
+    arch: { h: 'How it works', lead: 'The client only records, shows and types. Recognition and polishing run on a GPU box on the home network, reached through an ssh tunnel.',
+      mac: 'Your Mac', macw: 'NB Voice Input · menu bar app · Swift / AppKit',
+      items: [['Hold the hotkey to record', 'From the mic picked in Settings; pure silence is never sent'], ['The capsule follows your voice', 'Waveform tracks the level; preview text every 2 s'], ['Release, clean up the text', 'Replace → sound-alike fix → restarts → polish → checks'], ['Paste into the text field', 'Waits if focus wandered off; then logs what you edited']],
+      up: 'audio', upd: 'one connection for preview, one for the full pass', down: 'text', downd: 'recognized and polished', safe: 'Audio and text never leave the LAN',
+      gpu: 'GPU box on the LAN', gpuw: 'Windows · RX 6700 XT · starts on boot',
+      m1: ['Recognition', 'CapsWriter-Offline · Qwen3-ASR-1.7B'], m1t: '~0.8 s after release', m2: ['Polish', 'llama.cpp · Qwen3.5-4B Q8'], m2t: '~0.5 s on average',
+      note: 'The hotword list rides along with every request', local: ['Kept on this Mac only', 'Settings, hotwords, last 200 history items, last 20 recordings, edit log'] },
+    pipe: { h: 'How one sentence becomes typed text', lead: 'After the hotkey is released, the recognized text goes through these steps before it is pasted. Every step is logged, so you can always see what changed and why.',
+      steps: [
+        ['Recognize', 'Qwen3-ASR', '嗯下周一把<u>登塔计划</u>新的设新的设计稿发给<u>凯斯翠</u>那边', 'First strip any run of hotwords the model echoed in front'],
+        ['Must-replace', 'rule on the Hotwords page: 凯斯翠=Kestrel', '嗯下周一把登塔计划新的设新的设计稿发给<del>凯斯翠</del><ins>Kestrel</ins>那边', 'For errors that don’t sound alike, and English with no pinyin'],
+        ['Sound-alike fix', 'same pinyin and tones as a hotword', '嗯下周一把<del>登塔计划</del><ins>灯塔计划</ins>新的设新的设计稿发给Kestrel那边', 'Skipped next to numbers and measure words'],
+        ['Drop restarts', 'done in code, not by the model', '嗯下周一把灯塔计划<del>新的设</del>新的设计稿发给Kestrel那边', 'A run said twice, word for word, back to back (3+ characters): keep the second'],
+        ['Polish', 'Qwen3.5-4B · slips and format both on Mid', '<del>嗯</del>下周一把灯塔计划新的设计稿发给<ins> </ins>Kestrel<ins> </ins>那边<ins>。</ins>', 'Fillers out, punctuation in; lists only when you said “first, second”'],
+      ],
+      fin: ['Check, then type', 'fails a check → type the raw text'], out: '下周一把灯塔计划新的设计稿发给 Kestrel 那边。',
+      checks: ['only deletes', 'hotwords kept', 'no lone pronoun dropped', 'not too much cut', 'under 3 s'],
+      foot: 'Made-up sentence (“Send the new Lighthouse design to the Kestrel folks on Monday”); every step’s output is a real run of the app. Polish took 0.43 s.' } },
+  ja: {
+    arch: { h: 'しくみ', lead: 'クライアントは録音・表示・入力だけ。認識と整形は家の LAN にある GPU マシンで動き、ssh トンネル経由でつなぎます。',
+      mac: 'あなたの Mac', macw: 'NB 音声入力 · メニューバー常駐 · Swift / AppKit',
+      items: [['ショートカットを押して録音', '設定で選んだマイクを使用。無音のままなら認識に送らない'], ['カプセルが声についてくる', '波形が音量に合わせて動き、2 秒ごとにプレビュー'], ['離したら文字を整える', '置換 → 読みで補正 → 言い直し削除 → 整形 → チェック'], ['入力欄に貼り付け', 'フォーカスが外れていたら戻るのを待つ。その後の手直しも記録'] ],
+      up: '音声', upd: 'プレビュー用と本番用で接続を分ける', down: '文字', downd: '認識結果と整形結果', safe: '音声も文字も LAN の外に出ない',
+      gpu: 'LAN 内の GPU マシン', gpuw: 'Windows · RX 6700 XT · 起動時に自動実行',
+      m1: ['認識', 'CapsWriter-Offline · Qwen3-ASR-1.7B'], m1t: '離して約 0.8 秒', m2: ['整形', 'llama.cpp · Qwen3.5-4B Q8'], m2t: '平均約 0.5 秒',
+      note: 'ホットワード表は毎回のリクエストと一緒に送る', local: ['この Mac の中だけに保存', '設定、ホットワード、履歴 200 件、直近 20 件の録音、手直しの記録'] },
+    pipe: { h: 'ひとことが入力される文字になるまで', lead: 'ショートカットを離したあと、認識結果は次の手順を通ってから貼り付けられます。各手順はログに残るので、どこで何が変わったかすぐわかります。',
+      steps: [
+        ['認識', 'Qwen3-ASR', '嗯下周一把<u>登塔计划</u>新的设新的设计稿发给<u>凯斯翠</u>那边', 'まず先頭にホットワード表が写り込んでいないか確認して除去'],
+        ['必ず置換', 'ホットワード画面のルール 凯斯翠=Kestrel', '嗯下周一把登塔计划新的设新的设计稿发给<del>凯斯翠</del><ins>Kestrel</ins>那边', '読みが違う誤り、ピンインにならない英語はルールで'],
+        ['読みで補正', 'ピンインと声調がホットワードと同じ', '嗯下周一把<del>登塔计划</del><ins>灯塔计划</ins>新的设新的设计稿发给Kestrel那边', '数字・量詞の隣は置き換えない'],
+        ['言い直し削除', 'モデルではなくコードで', '嗯下周一把灯塔计划<del>新的设</del>新的设计稿发给Kestrel那边', '一字一句同じ 3 文字以上が続けて 2 回出たら、後ろだけ残す'],
+        ['整形', 'Qwen3.5-4B · 言い間違い・書式とも「中」', '<del>嗯</del>下周一把灯塔计划新的设计稿发给<ins> </ins>Kestrel<ins> </ins>那边<ins>。</ins>', 'フィラーを消して句読点を補う。「第一、第二」と言ったときだけ箇条書き'],
+      ],
+      fin: ['チェックして入力', '通らなければ原文を入力'], out: '下周一把灯塔计划新的设计稿发给 Kestrel 那边。',
+      checks: ['削るだけ', 'ホットワードが残る', '人称を消さない', '削りすぎない', '3 秒以内'],
+      foot: '例文は架空のもの（「月曜に灯台計画の新しいデザインを Kestrel チームに送る」）。各手順の結果はアプリで実際に動かしたもの。整形は 0.43 秒。' } },
+};
+
+const t = T[L][D], root = document.getElementById('root');
+if (D === 'arch') {
+  root.innerHTML = `
+  <div class="arch">
+    <div class="box"><h3><span class="ic grad">${mic}</span>${t.mac}</h3><div class="where">${t.macw}</div>
+      ${t.items.map((x, i) => `<div class="item"><div class="n">${i + 1}</div><div><b>${x[0]}</b><span>${x[1]}</span></div></div>`).join('')}</div>
+    <div class="tunnel">
+      <div class="lane r"><b>${t.up}</b><div class="line grad"></div>${t.upd}</div>
+      <div class="lane l"><b>${t.down}</b><div class="line"></div>${t.downd}</div>
+      <div class="shield">${lock}ssh</div>
+      <div class="lane" style="margin-top:2px">${t.safe}</div>
+    </div>
+    <div class="right"><div class="box"><h3><span class="ic" style="background:linear-gradient(135deg,#3a3f5c,#1f2236)">${gpu}</span>${t.gpu}</h3><div class="where">${t.gpuw}</div>
+      <div class="model"><div><b>${t.m1[0]}</b><small>${t.m1[1]}</small></div><em>${t.m1t}</em></div>
+      <div class="model"><div><b>${t.m2[0]}</b><small>${t.m2[1]}</small></div><em>${t.m2t}</em></div>
+      <p class="lane" style="margin-top:14px;text-align:left">${t.note}</p>
+    </div>
+    <div class="local"><b>${t.local[0]}</b><p>${t.local[1]}</p></div></div>
+  </div>`;
+} else {
+  root.innerHTML = `
+  <div class="steps">
+    ${t.steps.map((s, i) => `<div class="step"><div class="k"><i>${i + 1}</i><div><b>${s[0]}</b><small>${s[1]}</small></div></div>
+      <div class="t">${s[2].replace(/<u>(.*?)<\/u>/g, '<span style="border-bottom:2px dotted var(--faint)">$1</span>')}<span class="why">${s[3]}</span></div></div>`).join('')}
+    <div class="step final"><div class="k"><i class="grad">✓</i><div><b>${t.fin[0]}</b><small>${t.fin[1]}</small></div></div>
+      <div><div class="field">${t.out}<span class="caret"></span></div><div class="checks">${t.checks.map(c => `<span>${c}</span>`).join('')}</div></div></div>
+  </div>
+  <p class="foot">${t.foot}</p>`;
+}
+</script>
+</body>
+</html>

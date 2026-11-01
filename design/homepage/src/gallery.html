@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>首页截图拼图</title>
+<!-- 真实界面截图拼成首页用的图。?g=states|settings &lang=zh|en|ja &theme=light|dark，宽 960，render.sh 一起渲染。
+     截图在 ../shots/：胶囊是截图版 app 的 --demo 摆在 backdrop.html 前面拍的，设置窗口是 --demo settings:N，热词和历史都是编的。 -->
+<style>
+  :root { --bg: #ffffff; --ink: #1d1d1f; --sub: #6e6e73; --line: rgba(0,0,0,.08); }
+  body.dark { --bg: #0d1117; --ink: #f5f5f7; --sub: #a1a1a6; --line: rgba(255,255,255,.1); }
+  * { box-sizing: border-box; margin: 0; }
+  body { width: 960px; background: var(--bg); color: var(--ink); font: 14px/1.5 -apple-system, "PingFang SC", "Hiragino Sans", sans-serif; -webkit-font-smoothing: antialiased; }
+  .wrap { padding: 36px 40px 30px; }
+  h2 { font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
+  .lead { color: var(--sub); margin: 4px 0 24px; font-size: 15px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 20px; }
+  figure { margin: 0; }
+  figure img { width: 100%; display: block; border-radius: 14px; box-shadow: 0 0 0 1px var(--line), 0 8px 24px rgba(30,10,50,.08); }
+  figcaption { margin-top: 8px; color: var(--sub); }
+  figcaption b { color: var(--ink); font-weight: 600; margin-right: 6px; }
+  .cap img { border-radius: 16px; }
+  .win img { border-radius: 12px; box-shadow: 0 0 0 1px var(--line), 0 14px 34px rgba(30,10,50,.14); }
+</style>
+</head>
+<body>
+<div class="wrap" id="root"></div>
+<script>
+const q = new URLSearchParams(location.search);
+const L = q.get('lang') || 'zh', G = q.get('g') || 'states';
+if (q.get('theme') === 'dark') document.body.classList.add('dark');
+document.documentElement.lang = { zh: 'zh-Hans', en: 'en', ja: 'ja' }[L];
+const T = {
+  states: {
+    zh: { h: '录音胶囊', lead: '按住快捷键时从屏幕底部长出来，状态之间整块变形；Liquid Glass 玻璃透出背后的内容。',
+      items: [['listen', '正在听', '波形跟着音量跳'], ['preview', '边说边出字', '每 2 秒更新一次'], ['long', '说久了', '只留最后三行'], ['think', '松开后', '识别中'], ['done', '已输入', '显示输入了多少字'], ['nosound', '没听到声音', '带上麦克风的名字，不送去识别'], ['miss', '没听清', '识别结果是空的'], ['offline', '连不上', '识别服务连不上，正在重试'], ['waitfocus', '焦点跑了', '等你回到输入框再粘'], ['maybe', '等了 4 秒', '照粘，菜单栏里可以重新输入']] },
+    en: { h: 'The recording capsule', lead: 'It grows out of the bottom of the screen while the hotkey is held and morphs between states; the Liquid Glass shows what is behind it.',
+      items: [['listen', 'Listening', 'the waveform follows your voice'], ['preview', 'Live text', 'updated every 2 seconds'], ['long', 'Long speech', 'only the last three lines stay'], ['think', 'Released', 'recognizing'], ['done', 'Typed', 'with the character count'], ['nosound', 'No voice heard', 'names the mic; nothing is sent'], ['miss', 'Didn’t catch that', 'empty result'], ['offline', 'Offline', 'can’t reach the server, retrying'], ['waitfocus', 'Focus moved', 'waits for you to return to the text field'], ['maybe', 'After 4 seconds', 'pastes anyway; retype from the menu bar']] },
+    ja: { h: '録音カプセル', lead: 'ショートカットを押している間、画面下から伸びてきて、状態ごとに形を変えます。Liquid Glass で背後が透けて見えます。',
+      items: [['listen', '聞き取り中', '波形が音量に合わせて動く'], ['preview', '話しながら文字', '2 秒ごとに更新'], ['long', '長く話すと', '最後の 3 行だけ残す'], ['think', '離したあと', '認識中'], ['done', '入力完了', '入力した文字数'], ['nosound', '音が聞こえない', 'マイク名を表示し、認識には送らない'], ['miss', '聞き取れない', '認識結果が空'], ['offline', 'つながらない', '認識サーバーに再接続中'], ['waitfocus', 'フォーカスが移動', '入力欄に戻るのを待って貼り付け'], ['maybe', '4 秒待っても', 'そのまま貼り付け、メニューから再入力できる']] },
+  },
+  settings: {
+    zh: { h: '设置', lead: '所有配置都有界面，改完马上生效，数据只存在这台 Mac 上。',
+      items: [['settings-polish', '润色', '去掉口误、整理格式各有关 / 中 / 强，下面是「说的 / 输入」对照'], ['settings-words', '热词', '常用词点一下就能改；「错的=对的」一定替换，没生效的标黄'], ['settings-general', '通用', '选麦克风；记下输入以后你改了哪些字'], ['settings-history', '历史', '最近 200 条；改过的那条显示「改成了」，鼠标移上去能回听']] },
+    en: { h: 'Settings', lead: 'Everything has a UI and applies immediately. All data stays on this Mac.',
+      items: [['settings-polish', 'Polish', 'Off / Mid / Strong for slips and for format, with a “said / typed” preview'], ['settings-words', 'Hotwords', 'click a word to edit; “wrong=right” rules always replace, broken ones turn yellow'], ['settings-general', 'General', 'pick the microphone; log what you edit after typing'], ['settings-history', 'History', 'last 200 items; edited ones show what they became, hover to play the recording']] },
+    ja: { h: '設定', lead: 'すべての設定に画面があり、変更はすぐ反映。データはこの Mac の中だけ。',
+      items: [['settings-polish', '整形', '言い間違い・書式をそれぞれオフ / 中 / 強。下に「話した / 入力」の比較'], ['settings-words', 'ホットワード', 'クリックで編集。「誤=正」は必ず置換、効かないルールは黄色'], ['settings-general', '一般', 'マイクの選択。入力後に直した文字を記録'], ['settings-history', '履歴', '直近 200 件。直したものは「直した結果」を表示、ホバーで録音を再生']] },
+  },
+};
+const t = T[G][L];
+document.getElementById('root').innerHTML = `<h2>${t.h}</h2><p class="lead">${t.lead}</p>
+  <div class="grid">${t.items.map(([f, a, b]) => `<figure class="${G === 'settings' ? 'win' : 'cap'}"><img src="../shots/${f}.png"><figcaption><b>${a}</b>${b}</figcaption></figure>`).join('')}</div>`;
+</script>
+</body>
+</html>
