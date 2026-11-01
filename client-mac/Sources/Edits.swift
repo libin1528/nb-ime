@@ -131,6 +131,13 @@ final class EditWatcher {
         return r
     }
 
+    /// 当前输入框里光标前面的字；读不到（应用不开辅助功能、密码框）返回 nil
+    static func textBeforeCaret() -> String? {
+        guard let el = focused(), !isSecure(el), let v = value(el), let caret = caret(el) else { return nil }
+        let s = v as NSString
+        return caret <= s.length ? s.substring(to: caret) : nil
+    }
+
     /// Electron 应用（Claude、Slack……）默认不开辅助功能树，焦点只读得到整个窗口；请它打开
     static func exposeTree(_ pid: pid_t) {
         AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), "AXManualAccessibility" as CFString, kCFBooleanTrue)

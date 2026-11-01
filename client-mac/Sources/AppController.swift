@@ -41,6 +41,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private var releasedAt: [String: Date] = [:]
     private var polishing = 0                     // 正在润色、还没粘贴的几句
     private var waiting: (text: String, timer: Timer, then: () -> Void)?   // 等焦点回到输入框的那一句
+    private var lastPasted = ""   // 上一句粘进去的字，下一句开头要不要补逗号看它
     static let focusWait = 4.0
 
     // 流式预览
@@ -66,6 +67,10 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         if let polishTest {
             runPolishTest(polishTest)
             return
+        }
+        if CommandLine.arguments.contains("--tune-prompt") {   // 打印菜单「和 Agent 一起调优」复制的提示词
+            print(Tuning.prompt())
+            exit(0)
         }
         if let typed = arg("--edit-test") {
             runEditTest(typed)
@@ -470,6 +475,11 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         let meta = taskMeta.removeValue(forKey: id)
         let ms = started.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
+        let signed = Signfix.apply(text)
+        if signed != text {
+            Log.w("正负号换回字：\(text) → \(signed)")
+            text = signed
+        }
         // 先按「错的=对的」一定替换，再按读音换回热词
         let replaced = Replace.apply(text, Settings.replaceRules())
         if !replaced.hits.isEmpty {
@@ -530,7 +540,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private func type(_ text: String, from start: AXUIElement?, then: @escaping () -> Void = {}) {
         pasteWaiting()   // 前一句还在等：先把它粘出去，别让两句的顺序反了
         guard let stray = EditWatcher.strayFocus(from: start) else {
-            Paster.paste(text, restore: Settings.current.restoreClipboard)
+            paste(text)
             capsule.show(.done(text.count), for: 1.6)
             then()
             return
@@ -560,13 +570,30 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         guard let w = waiting else { return }
         waiting = nil
         w.timer.invalidate()
-        Paster.paste(w.text, restore: Settings.current.restoreClipboard)
+        paste(w.text)
         if missed {
             capsule.show(.note("exclamationmark.triangle", "可能没输进去 · 菜单栏里可重新输入"), for: 3)
         } else {
             capsule.show(.done(w.text.count), for: 1.6)
         }
         w.then()
+    }
+
+    private func paste(_ text: String) {
+        let t = joined(text)
+        Paster.paste(t, restore: Settings.current.restoreClipboard)
+        lastPasted = t
+    }
+
+    /// 光标紧跟在上一句后面、上一句末尾没标点（短句去了句号，或者识别就没给），这一句开头补个逗号，免得两句粘成一句。
+    /// 光标前面不是上一句（手打的、换了输入框、读不到）就不补
+    private func joined(_ text: String) -> String {
+        guard Settings.current.commaBetween, !lastPasted.isEmpty, let first = text.first, first.isLetter || first.isNumber,
+              let before = EditWatcher.textBeforeCaret(), before.hasSuffix(lastPasted),
+              let prev = before.last, prev.isLetter || prev.isNumber else { return text }
+        let sep = prev.isASCII && first.isASCII ? " " : "，"
+        Log.w("上一句末尾没标点，开头补「\(sep)」")
+        return sep + text
     }
 
     // MARK: 菜单栏
@@ -588,6 +615,11 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
                 Log.w("重新输入 \(text.count) 字")
                 self?.type(text, from: nil)
             }
+        }
+        m.onTune = { [weak self] in
+            Paster.copy(Tuning.prompt())
+            Log.w("复制了调优提示词")
+            self?.capsule.show(.note("wand.and.stars", "提示词已复制 · 粘给你的 Agent"), for: 2.5)
         }
         m.onAccess = { [weak self] in self?.onboarding.show() }
         m.onLocalNetwork = {

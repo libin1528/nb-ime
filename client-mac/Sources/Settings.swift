@@ -19,6 +19,7 @@ struct Settings {
     var language = "auto"
     var restoreClipboard = true
     var stripShortTrailingPeriod = true
+    var commaBetween = true   // 接着上一句说时，上一句末尾没标点就在这一句开头补逗号
     var hudPosition = "bottom"       // bottom 屏幕底部 / caret 跟着光标
     var sounds = false               // 开始和结束时的提示音
     var streamPreview = true         // 说话时实时显示文字
@@ -80,6 +81,7 @@ struct Settings {
         if let v = j["language"] as? String { s.language = v }
         if let v = j["restoreClipboard"] as? Bool { s.restoreClipboard = v }
         if let v = j["stripShortTrailingPeriod"] as? Bool { s.stripShortTrailingPeriod = v }
+        if let v = j["commaBetween"] as? Bool { s.commaBetween = v }
         if let v = j["hudPosition"] as? String { s.hudPosition = v }
         if let v = j["sounds"] as? Bool { s.sounds = v }
         if let v = j["streamPreview"] as? Bool { s.streamPreview = v }
@@ -99,7 +101,7 @@ struct Settings {
             "tunnelHost": tunnelHost, "serverHost": serverHost, "serverPort": serverPort,
             "localPort": localPort, "hotkeyCode": Int(hotkeyCode), "holdThreshold": holdThreshold,
             "tailSeconds": tailSeconds, "language": language, "restoreClipboard": restoreClipboard,
-            "stripShortTrailingPeriod": stripShortTrailingPeriod, "hudPosition": hudPosition,
+            "stripShortTrailingPeriod": stripShortTrailingPeriod, "commaBetween": commaBetween, "hudPosition": hudPosition,
             "sounds": sounds, "streamPreview": streamPreview, "onboarded": onboarded,
             "polishClean": polishClean.rawValue, "polishFormat": polishFormat.rawValue,
             "polishPort": polishPort, "polishLocalPort": polishLocalPort,

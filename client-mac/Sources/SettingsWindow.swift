@@ -173,6 +173,8 @@ final class GeneralPane: Pane {
             UI.row("识别语言", nil, lang),
             UI.row("短句去掉末尾的句号", "12 个字以内，比如「好的」「收到」",
                    UI.toggle(s.stripShortTrailingPeriod) { Settings.current.stripShortTrailingPeriod = $0 }),
+            UI.row("接着说时补逗号", "上一句末尾没标点、光标还跟在它后面，这一句开头加「，」",
+                   UI.toggle(s.commaBetween) { Settings.current.commaBetween = $0 }),
             UI.row("输入后恢复剪贴板", "文字是借剪贴板粘进去的，粘完把你原来复制的东西放回去",
                    UI.toggle(s.restoreClipboard) { Settings.current.restoreClipboard = $0 }),
             UI.row("记下我改了哪些字", "输入后记下你改成了什么，只存本机，密码框不读",

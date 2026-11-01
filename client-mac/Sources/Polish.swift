@@ -1,7 +1,7 @@
 // 识别后润色：完整结果出来、粘贴之前，交给 ITX 上的小模型整理一遍（llama-server + Qwen3.5-4B，走同一条 ssh 隧道）。
 // 两件事各管各的：去口误（只删字：重复、改口、语气词）和整理格式（只动标点、分段、列表，不删字），各有 关 / 中 / 强。
 // 去口误开着时，一字不差的重说（「新的设新的设计」）先用代码删掉，不靠模型。
-// 小模型偶尔会补字、改字、删掉有用的话，所以结果要过一遍检查：只删不加（长句许补一两个字）、热词都在、没单删人称、除了重复和语气词没删太多；
+// 小模型偶尔会补字、改字、删掉有用的话，所以结果要过一遍检查：只删不加（长句许补一两个字）、热词都在、没单删人称、没删「更正」、除了重复和语气词没删太多；
 // 不过关、超时、连不上，都直接用原文。提示词和例子是拿 PM 的真实口语一档档试出来的，改之前先跑 --polish-test。
 
 import Foundation
@@ -148,6 +148,8 @@ enum Polish {
         let runs = deletedRuns(a, kept)
         // 单删一个人称会改意思（「我们有了」→「有了」，「谢谢谢谢你」→「谢谢」），提示词压不住，在这里拦
         if runs.contains(where: { isLonePronoun(a, $0) }) { return "删了人称" }
+        // 「更正一下，……」是要打给对方看的话，模型会当成改口删掉；改提示词压下这句又冒出别的，在这里拦
+        if let w = spoken.first(where: { raw.contains($0) && !out.contains($0) }) { return "删了「\(w)」" }
         // 删掉的是重复说的、语气词、口头禅都不算数，剩下的删多了才拦
         let explained = runs.filter { isRepeatOrFiller(a, $0) }.reduce(0) { $0 + $1.count }
         let keep = clean == .strong ? 0.6 : 0.75
@@ -157,6 +159,9 @@ enum Polish {
 
     /// 语气词、口头禅里的字；删掉的一段去掉这些字以后再看是不是重复
     private static let fillers = Set("呃嗯啊哦吧呢那个就是说然后这")
+
+    /// 说出来就是要打出来的词，模型却当口误删
+    private static let spoken = ["更正", "纠正"]
 
     private static let pronouns: Set<String> = ["我", "我们", "咱们", "你", "你们", "他", "他们", "她", "她们", "它"]
 

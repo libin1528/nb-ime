@@ -24,6 +24,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     var onAccess: (() -> Void)?
     var onLocalNetwork: (() -> Void)?
     var onRetype: ((String) -> Void)?
+    var onTune: (() -> Void)?
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
@@ -104,6 +105,12 @@ final class MenuBar: NSObject, NSMenuDelegate {
         let pause = item("暂停语音输入", "") { [weak self] in self?.onPause?() }
         pause.state = state.status == .paused ? .on : .off
         menu.addItem(pause)
+        // 和 Agent 一起调优：右边提示上次调完又攒了几处改字，攒多了就该再调一次
+        let tune = item("和 Agent 一起调优…", "") { [weak self] in self?.onTune?() }
+        let edited = Tuning.since(Tuning.lastTuned()).edited
+        if edited > 0 { hint(tune, "又攒了 \(edited) 处改字", at: 260) }
+        tune.toolTip = "复制一段提示词，粘给你的 agent：它读本机的日志和改字记录，找出老出错的地方，跟你商量着改热词或代码"
+        menu.addItem(tune)
         menu.addItem(item("设置…", ",") { [weak self] in self?.onSettings?() })
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -128,16 +135,19 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         let m = item("“\(shown)”", "", f)
         m.toolTip = text
-        if let hint {
-            let ps = NSMutableParagraphStyle()
-            ps.tabStops = [NSTextTab(textAlignment: .right, location: 300)]
-            let s = NSMutableAttributedString(string: "“\(shown)”", attributes: [.font: font, .paragraphStyle: ps])
-            s.append(NSAttributedString(string: "\t" + hint, attributes: [
-                .font: NSFont.menuFont(ofSize: 12), .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: ps,
-            ]))
-            m.attributedTitle = s
-        }
+        if let hint { self.hint(m, hint, at: 300) }
         return m
+    }
+
+    /// 标题右边靠右放一段浅色小字
+    private func hint(_ m: NSMenuItem, _ hint: String, at x: CGFloat) {
+        let ps = NSMutableParagraphStyle()
+        ps.tabStops = [NSTextTab(textAlignment: .right, location: x)]
+        let s = NSMutableAttributedString(string: m.title, attributes: [.font: NSFont.menuFont(ofSize: 0), .paragraphStyle: ps])
+        s.append(NSAttributedString(string: "\t" + hint, attributes: [
+            .font: NSFont.menuFont(ofSize: 12), .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: ps,
+        ]))
+        m.attributedTitle = s
     }
 
     /// 截图用：把菜单点开

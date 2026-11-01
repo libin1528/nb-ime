@@ -18,6 +18,8 @@ if [[ " $* " != *" --no-run "* ]]; then pkill -x NBIME 2>/dev/null || true; fi
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Info.plist "$APP/Contents/Info.plist"
+# 菜单「和 Agent 一起调优」复制的提示词里要写源码在哪
+plutil -replace NBSourceDir -string "${0:A:h:h}" "$APP/Contents/Info.plist"
 cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp build/NBIME "$APP/Contents/MacOS/NBIME"
 SIGN_ID="-"
