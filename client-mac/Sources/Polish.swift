@@ -1,6 +1,7 @@
 // 识别后润色：完整结果出来、粘贴之前，交给 ITX 上的小模型整理一遍（llama-server + Qwen3.5-4B，走同一条 ssh 隧道）。
 // 两件事各管各的：去口误（只删字：重复、改口、语气词）和整理格式（只动标点、分段、列表，不删字），各有 关 / 中 / 强。
-// 小模型偶尔会补字、改字、删掉有用的话，所以结果要过一遍检查：只删不加（长句许补一两个字）、热词都在、除了重复和语气词没删太多；
+// 去口误开着时，一字不差的重说（「新的设新的设计」）先用代码删掉，不靠模型。
+// 小模型偶尔会补字、改字、删掉有用的话，所以结果要过一遍检查：只删不加（长句许补一两个字）、热词都在、没单删人称、除了重复和语气词没删太多；
 // 不过关、超时、连不上，都直接用原文。提示词和例子是拿 PM 的真实口语一档档试出来的，改之前先跑 --polish-test。
 
 import Foundation
@@ -32,16 +33,19 @@ enum Polish {
     static func timeout(_ text: String) -> Double { 3 + max(0, Double(text.count - 150)) / 100 }
 
     /// 整理一段话，主线程回调：结果和一句给日志看的说明。没开、太短、超时、出错、没过检查，都回原文。
-    static func run(_ text: String, clean: Level, format: Level, hotwords: [String],
+    static func run(_ raw: String, clean: Level, format: Level, hotwords: [String],
                     done: @escaping (_ result: String, _ note: String) -> Void) {
-        guard clean != .off || format != .off else { return done(text, "没开") }
-        guard content(text).count >= minChars else { return done(text, "太短，不整理") }
+        guard clean != .off || format != .off else { return done(raw, "没开") }
+        // 一字不差的重说先在这里删掉，模型、检查、退回用的「原文」都是删过的
+        let (text, dropped) = clean == .off ? (raw, []) : dropRestarts(raw, hotwords: hotwords)
+        let pre = dropped.map { "删了重说「\($0)」，" }.joined()
+        guard content(text).count >= minChars else { return done(text, pre + "太短，不整理") }
         let started = Date()
         var finished = false
         func finish(_ r: String, _ note: String) {
             guard !finished else { return }
             finished = true
-            done(r, String(format: "%.2fs ", Date().timeIntervalSince(started)) + note)
+            done(r, String(format: "%.2fs ", Date().timeIntervalSince(started)) + pre + note)
         }
         var req = URLRequest(url: endpoint("/v1/chat/completions"))
         req.httpMethod = "POST"
@@ -61,7 +65,7 @@ enum Polish {
                 if let why = problem(raw: text, out: r, clean: clean, hotwords: hotwords) {
                     return finish(text, "\(why)，用原文（模型给的是「\(r)」）")
                 }
-                finish(r, r == text ? "没改" : "整理好了")
+                finish(r, r == raw ? "没改" : "整理好了")
             }
         }
         task.resume()
@@ -80,6 +84,42 @@ enum Polish {
             let ok = data.flatMap { String(data: $0, encoding: .utf8) }?.contains("ok") ?? false
             DispatchQueue.main.async { done(ok) }
         }.resume()
+    }
+
+    // MARK: 删重说
+
+    /// 一字不差、紧挨着说了两遍的一段汉字（至少 3 个字），只留后一遍：「新的设新的设计规范」→「新的设计规范」。
+    /// 两遍中间隔着标点、空格或呃嗯啊哦也算紧挨着，一起删掉。两个字的叠词（研究研究）、同一个字连着的（哈哈哈哈）不动；
+    /// 删了会丢热词的不删。英文不管，交给模型。返回删完的文字和删掉的几段（给日志看）
+    static func dropRestarts(_ text: String, hotwords: [String] = []) -> (String, [String]) {
+        var c = Array(text), dropped: [String] = []
+        func han(_ x: Character) -> Bool { x.unicodeScalars.allSatisfy { (0x4E00...0x9FFF).contains($0.value) } }
+        func gap(_ x: Character) -> Bool { !(x.isLetter || x.isNumber) || "呃嗯啊哦".contains(x) }
+        var i = 0
+        while i < c.count {
+            var end = i
+            while end < c.count, han(c[end]) { end += 1 }
+            var cut: Range<Int>?
+            // 长的先试：整句说两遍时删整句，不是删半截
+            for k in stride(from: end - i, through: 3, by: -1) {
+                let chunk = c[i..<i + k]
+                guard Set(chunk).count > 1 else { continue }
+                var j = i + k
+                while j < c.count, gap(c[j]) { j += 1 }
+                guard j + k <= c.count, c[j..<j + k] == chunk else { continue }
+                let after = String(c[..<i] + c[j...])
+                if hotwords.contains(where: { text.localizedCaseInsensitiveContains($0) && !after.localizedCaseInsensitiveContains($0) }) { continue }
+                cut = i..<j
+                break
+            }
+            if let cut {
+                dropped.append(String(c[cut]).trimmingCharacters(in: .punctuationCharacters.union(.whitespaces)))
+                c.removeSubrange(cut)   // 不往后挪：同一段说了三遍的再删一遍
+            } else {
+                i += 1
+            }
+        }
+        return (String(c), dropped)
     }
 
     // MARK: 检查和收尾
@@ -105,8 +145,11 @@ enum Polish {
         if let lost = hotwords.first(where: { raw.localizedCaseInsensitiveContains($0) && !out.localizedCaseInsensitiveContains($0) }) {
             return "丢了热词 \(lost)"
         }
+        let runs = deletedRuns(a, kept)
+        // 单删一个人称会改意思（「我们有了」→「有了」，「谢谢谢谢你」→「谢谢」），提示词压不住，在这里拦
+        if runs.contains(where: { isLonePronoun(a, $0) }) { return "删了人称" }
         // 删掉的是重复说的、语气词、口头禅都不算数，剩下的删多了才拦
-        let explained = deletedRuns(a, kept).filter { isRepeatOrFiller(a, $0) }.reduce(0) { $0 + $1.count }
+        let explained = runs.filter { isRepeatOrFiller(a, $0) }.reduce(0) { $0 + $1.count }
         let keep = clean == .strong ? 0.6 : 0.75
         if a.count >= 20, Double(kept.count) < Double(a.count - explained) * keep { return "删得太多" }
         return nil
@@ -114,6 +157,17 @@ enum Polish {
 
     /// 语气词、口头禅里的字；删掉的一段去掉这些字以后再看是不是重复
     private static let fillers = Set("呃嗯啊哦吧呢那个就是说然后这")
+
+    private static let pronouns: Set<String> = ["我", "我们", "咱们", "你", "你们", "他", "他们", "她", "她们", "它"]
+
+    /// 删掉的这段正好是一个人称，旁边又没有紧挨着的同一个词（「我们我们」「你你」那是结巴，可以删）
+    private static func isLonePronoun(_ a: [Character], _ r: Range<Int>) -> Bool {
+        let w = a[r]
+        guard pronouns.contains(String(w)) else { return false }
+        let before = r.lowerBound >= w.count ? a[(r.lowerBound - w.count)..<r.lowerBound] : []
+        let after = r.upperBound + w.count <= a.count ? a[r.upperBound..<(r.upperBound + w.count)] : []
+        return before != w && after != w
+    }
 
     /// 原文里哪些字留下了（最长公共子序列，记原文的下标）。能往后对就往后对：重说的时候留的是后一遍
     private static func align(_ a: [Character], _ b: [Character]) -> [Int] {
@@ -204,6 +258,8 @@ enum Polish {
         删掉口误（只删这几类，别的字不动）：
         - 结巴重复的字词：「把把」→「把」，「设设置」→「设置」。
         - 紧挨着重复说的词、短语、句子只留一次：「设计稿设计稿」→「设计稿」，「行不行？行不行？」→「行不行？」。
+        - 说了半截又从头重说的，只留后面说完整的那一遍：「打开设置打开设置页面」→「打开设置页面」，「价格的价格太高」→「价格太高」。前后两遍都说完整了、说的又不一样的（「红的蓝的都行」「三点四点」），不算重说，都留着。
+        - 重复的只删多出来的那一遍，别的字不连带删：「谢谢谢谢你」→「谢谢你」。我、我们、你、他这些人称不删，隔着别的话又说了一次的也不算重复。
         - 用「不对」「不是」「我是说」改口的，只留改过的：「周三，不对，周四」→「周四」。
         - 没意义的语气词：呃、嗯、啊、哦。
         - 引用、举例里的原话（「比如我说……」「他说……」后面的）照抄，不算口误。
@@ -214,6 +270,8 @@ enum Polish {
         删掉口误和废话：
         - 结巴重复的字词：「把把」→「把」，「设设置」→「设置」。
         - 紧挨着重复说的词、短语、句子只留一次：「设计稿设计稿」→「设计稿」，「行不行？行不行？」→「行不行？」。
+        - 说了半截又从头重说的，只留后面说完整的那一遍：「打开设置打开设置页面」→「打开设置页面」，「价格的价格太高」→「价格太高」。前后两遍都说完整了、说的又不一样的（「红的蓝的都行」「三点四点」），不算重说，都留着。
+        - 重复的只删多出来的那一遍，别的字不连带删：「谢谢谢谢你」→「谢谢你」。我、我们、你、他这些人称不删，隔着别的话又说了一次的也不算重复。
         - 改口的只留改过的，不管有没有「不对」：「周三，不对，周四」→「周四」；「可能是网络，哦，是权限的问题」→「是权限的问题」。
         - 语气词：呃、嗯、啊、哦、吧、呢（不影响意思的）。
         - 当口头禅用的「那个」「就是说」「然后」「这个」。
@@ -294,6 +352,16 @@ enum Polish {
             "中强": "你能不能帮我看一下这个报错是什么意思？",
             "强中": "你能不能帮我看一下这个报错是什么意思？",
             "强强": "你能不能帮我看一下这个报错是什么意思？",
+        ]),
+        Example(raw: "嗯我们下周把新版本发到测试发到测试服务器上，然后我们把大家的反馈的反馈收集一下啊", out: [
+            "中关": "我们下周把新版本发到测试服务器上，然后我们把大家的反馈收集一下",
+            "强关": "我们下周把新版本发到测试服务器上，我们把大家的反馈收集一下",
+            "关中": "嗯，我们下周把新版本发到测试发到测试服务器上，然后我们把大家的反馈的反馈收集一下啊。",
+            "关强": "嗯，我们下周把新版本发到测试发到测试服务器上，然后我们把大家的反馈的反馈收集一下啊。",
+            "中中": "我们下周把新版本发到测试服务器上，然后我们把大家的反馈收集一下。",
+            "中强": "我们下周把新版本发到测试服务器上，然后我们把大家的反馈收集一下。",
+            "强中": "我们下周把新版本发到测试服务器上，我们把大家的反馈收集一下。",
+            "强强": "我们下周把新版本发到测试服务器上，我们把大家的反馈收集一下。",
         ]),
     ]
 }
