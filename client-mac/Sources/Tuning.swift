@@ -35,7 +35,8 @@ enum Tuning {
             guard let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { continue }
             if let date, let t = (row["time"] as? String).flatMap(iso.date), t < date { continue }
             inputs += 1
-            if row["changed"] as? Bool == true { edited += 1 }
+            if row["changed"] as? Bool == true,
+               EditLog.changed(typed: row["typed"] as? String ?? "", final: row["final"] as? String ?? "") { edited += 1 }
         }
         return (inputs, edited)
     }

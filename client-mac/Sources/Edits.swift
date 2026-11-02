@@ -78,10 +78,11 @@ final class EditWatcher {
         watch = w
     }
 
-    /// 两个锚点之间的字；锚点找不到、或者整个输入框空了（发出去了）返回 nil
+    /// 两个锚点之间的字；锚点找不到、或者整个输入框空了（发出去了）返回 nil。
+    /// Claude 之类 Electron 的输入框清空后读到的是 "\n"，只剩空白也算空了
     private static func segment(_ value: String, head: String, tail: String) -> String? {
         let v = value as NSString
-        guard v.length > 0 else { return nil }
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         var start = 0
         if !head.isEmpty {
             let r = v.range(of: head)
@@ -182,7 +183,7 @@ enum EditLog {
     private static let queue = DispatchQueue(label: "nbime.edits")
 
     static func add(_ i: EditWatcher.Inserted, final: String) {
-        let changed = final != i.typed
+        let changed = Self.changed(typed: i.typed, final: final)
         let row: [String: Any] = [
             "time": ISO8601DateFormatter().string(from: Date()), "app": i.app, "audio": i.audio ?? "",
             "seconds": i.seconds, "recognized": i.recognized, "typed": i.typed,
@@ -209,5 +210,11 @@ enum EditLog {
             let all = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasSuffix(".wav") }.sorted()
             for old in all.dropLast(keepAudio) { try? fm.removeItem(at: dir.appendingPathComponent(old)) }
         }
+    }
+
+    /// 只差首尾的空白、换行不算改；只剩空白的是发出去了（旧记录里有这样记的），也不算
+    static func changed(typed: String, final: String) -> Bool {
+        let f = final.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !f.isEmpty && f != typed.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
