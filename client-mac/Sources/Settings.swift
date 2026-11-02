@@ -170,6 +170,19 @@ struct Settings {
         return hits.count == tokens.count ? hits : nil
     }
 
+    /// 结果里有一串只隔着标点的热词：连着五个及以上，或者三个及以上里有同一个词出现两次，返回这一串，否则 nil。
+    /// 念一串名字、头一个正好是热词时，模型会顺着热词表往下背（顺序不定、常带重复，长的能背上百个），盖掉后面真说的话。
+    static func hotwordRun(_ text: String, _ words: [String]) -> [String]? {
+        let canon = Dictionary(words.map { ($0.lowercased(), $0) }, uniquingKeysWith: { a, _ in a })
+        var run: [String] = []
+        for token in text.split(whereSeparator: { "，,、。.；;！!？? \n".contains($0) }).map(String.init) + [""] {
+            if let w = canon[token.lowercased()] { run.append(w); continue }
+            if run.count >= 5 || (run.count >= 3 && Set(run).count < run.count) { return run }
+            run = []
+        }
+        return nil
+    }
+
     /// 结果里夹着一段热词表：从第一个热词起、按送给模型的顺序连着四个及以上（热词不到四个就要全部），
     /// 后面还跟着别的话。去掉这一段返回剩下的；整句都是热词的不管，交给 echoedHotwords 复核。
     /// 人声开头前有一小段静音时，模型偶尔把提示原样抄在真话前面，就是这个样子。

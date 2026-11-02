@@ -38,6 +38,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private typealias Meta = (seconds: Double, app: String, audio: String?, focus: AXUIElement?)   // audio：存下来的录音文件名
     // 复核任务 id → 原任务、第一次抄出来的热词、原任务松开的时间
     private var retryOf: [String: (orig: String, first: [String], started: Date?)] = [:]
+    // 不带热词重认的任务 id → 原任务、第一次的结果、原任务松开的时间
+    private var plainOf: [String: (orig: String, raw: String, started: Date?)] = [:]
     private var releasedAt: [String: Date] = [:]
     private var polishing = 0                     // 正在润色、还没粘贴的几句
     private var waiting: (text: String, timer: Timer, then: () -> Void)?   // 等焦点回到输入框的那一句
@@ -324,6 +326,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             self.discard.insert(id)   // 服务端卡住以后结果可能过很久才回来，那时再粘贴就粘到别处去了
             self.taskAudio[id] = nil
             self.retryOf[id] = nil
+            self.plainOf[id] = nil
             self.capsule.show(.note("clock", "识别超时"), for: 2)
             self.refreshStatus()
         }
@@ -435,13 +438,23 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private func recheck(_ id: String, first: [String], started: Date?, audio: [Float]) {
         let rid = UUID().uuidString
         retryOf[rid] = (id, first, started)
+        resend(id, as: rid, audio: audio, context: Settings.hotwordList().reversed().joined(separator: "，"))
+    }
+
+    /// 同一段录音不带热词再认一次
+    private func reread(_ id: String, raw: String, started: Date?, audio: [Float]) {
+        let rid = UUID().uuidString
+        plainOf[rid] = (id, raw, started)
+        resend(id, as: rid, audio: audio, context: "")
+    }
+
+    private func resend(_ id: String, as rid: String, audio: [Float], context: String) {
         taskMeta[rid] = taskMeta.removeValue(forKey: id)
         releasedAt[rid] = Date()
         armTimeout(rid)
         let b64 = audio.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
-        let ctx = Settings.hotwordList().reversed().joined(separator: "，")
-        client.send(message(rid, b64, false, ctx))
-        client.send(message(rid, "", true, ctx))
+        client.send(message(rid, b64, false, context))
+        client.send(message(rid, "", true, context))
     }
 
     private func handleResult(_ id: String, _ final: Bool, _ raw: String) {
@@ -455,12 +468,24 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let hot = Settings.hotwordList()
+        let plain = plainOf.removeValue(forKey: id)
+        if let plain {
+            Log.w("重认 \(plain.orig.prefix(8))：不带热词「\(text)」")
+            if text.isEmpty { text = plain.raw }
+            started = plain.started
+        } else if retryOf[id] == nil, let audio, Settings.echoedHotwords(text, hot) == nil,
+                  let run = Settings.hotwordRun(text, hot) {
+            // 念一串名字时模型顺着热词表往下背，盖掉了真说的话：不带热词重认，热词靠后面的读音纠正找回来
+            Log.w("结果 \(id.prefix(8)) 热词连成一串（\(run.count) 个）：\(raw)，不带热词重认")
+            reread(id, raw: text, started: started, audio: audio)
+            return
+        }
         // 真话前面抄了一段热词表：直接去掉那段。复核那次送的是倒序热词，按倒序找
-        if let cut = Settings.strippedEcho(text, retryOf[id] == nil ? hot : hot.reversed()) {
+        if plain == nil, let cut = Settings.strippedEcho(text, retryOf[id] == nil ? hot : hot.reversed()) {
             Log.w("结果 \(id.prefix(8)) 前面抄了 \(cut.echo.count) 个热词，去掉：\(text) → \(cut.text)")
             text = cut.text
         }
-        let echo = Settings.echoedHotwords(text, hot)
+        let echo = plain == nil ? Settings.echoedHotwords(text, hot) : nil
         if let retry = retryOf.removeValue(forKey: id) {
             // 两次都抄：开头一致说明真说了这个词，只留它；不一致就是凭空抄的
             if let echo {
