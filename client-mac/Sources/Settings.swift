@@ -27,6 +27,8 @@ struct Settings {
     var polishFormat = Polish.Level.mid   // 识别后整理格式：标点、分段、列表
     var polishPort = 6017            // ITX 上润色模型（llama-server）的端口
     var polishLocalPort = 16017      // 隧道在本机的端口
+    var transcribePort = 6018        // ITX 上 OpenAI 兼容的转写接口（给 ClawChat 语音输入测试用，见 server/README.md）
+    var transcribeLocalPort = 16018  // 隧道在本机的端口
     var onboarded = false            // 首次引导走完了
     var micUID = ""                  // 录音用的麦克风（CoreAudio 设备 UID）；空 = 跟着系统默认
     var micName = ""                 // 它的名字，拔掉以后设置里还能显示
@@ -89,6 +91,8 @@ struct Settings {
         if let v = j["polishFormat"] as? String, let l = Polish.Level(rawValue: v) { s.polishFormat = l }
         if let v = j["polishPort"] as? Int { s.polishPort = v }
         if let v = j["polishLocalPort"] as? Int { s.polishLocalPort = v }
+        if let v = j["transcribePort"] as? Int { s.transcribePort = v }
+        if let v = j["transcribeLocalPort"] as? Int { s.transcribeLocalPort = v }
         if let v = j["onboarded"] as? Bool { s.onboarded = v }
         if let v = j["micUID"] as? String { s.micUID = v }
         if let v = j["micName"] as? String { s.micName = v }
@@ -105,6 +109,7 @@ struct Settings {
             "sounds": sounds, "streamPreview": streamPreview, "onboarded": onboarded,
             "polishClean": polishClean.rawValue, "polishFormat": polishFormat.rawValue,
             "polishPort": polishPort, "polishLocalPort": polishLocalPort,
+            "transcribePort": transcribePort, "transcribeLocalPort": transcribeLocalPort,
             "micUID": micUID, "micName": micName, "trackEdits": trackEdits,
         ]
         if let hotkeyCode2 { j["hotkeyCode2"] = Int(hotkeyCode2) }
@@ -123,7 +128,7 @@ struct Settings {
     }
 
     /// 连接相关的几项，变了才需要重连
-    var connectionKey: String { "\(tunnelHost)|\(serverHost)|\(serverPort)|\(localPort)|\(polishPort)|\(polishLocalPort)" }
+    var connectionKey: String { "\(tunnelHost)|\(serverHost)|\(serverPort)|\(localPort)|\(polishPort)|\(polishLocalPort)|\(transcribePort)|\(transcribeLocalPort)" }
 
     // MARK: 热词
 

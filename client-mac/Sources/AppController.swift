@@ -13,6 +13,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private var client: ASRClient!            // 完整识别
     private var preview: ASRClient!           // 流式预览
     private var connKey = ""
+    private let netWatch = NetWatch()
     /// ssh 报 No route to host：多半是系统设置里没允许 NB 输入法访问本地网络
     private var localNetworkBlocked = false
     private let recorder = Recorder()
@@ -79,6 +80,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             return
         }
         connect()
+        netWatch.onChange = { [weak self] in self?.reconnectAfterNetworkChange() }
+        if testFile == nil, demo == nil { netWatch.start() }
         if let testFile {
             runFileTest(testFile)
             return
@@ -152,6 +155,18 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             c.connect()
             p.connect()
         }
+    }
+
+    /// 换了网络就重开隧道，让 ssh 重新选局域网还是公网那条路。正在说话、等结果、润色时先不动，2 秒后再看，最多等 30 秒
+    private func reconnectAfterNetworkChange(waited: Int = 0) {
+        guard tunnel != nil else { return }   // 局域网直连不经 ssh，没得选
+        let busy = phase != .idle || !releasedAt.isEmpty || polishing > 0 || waiting != nil
+        if busy, waited < 30 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.reconnectAfterNetworkChange(waited: waited + 2) }
+            return
+        }
+        Log.w("换了网络，重开隧道")
+        connect()
     }
 
     private static func portOpen(_ port: Int) -> Bool {

@@ -417,7 +417,7 @@ final class PolishPane: Pane {
         dot.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
         Polish.ping { [weak self] ok in
             self?.status.stringValue = ok
-                ? "整理模型跑在 ITX 上，文字不出局域网；3 秒没整理好就输入原文"
+                ? "整理模型跑在你自己的 ITX 上，文字不经过别人的服务器；3 秒没整理好就输入原文"
                 : "连不上 ITX 上的整理模型，先直接输入原文"
             self?.dot.layer?.backgroundColor = (ok ? UI.green : UI.orange).cgColor
         }
@@ -647,7 +647,7 @@ final class ConnPane: Pane {
             UI.row("方式", "SSH 隧道不用在 ITX 上开防火墙；局域网直连要服务端对局域网开放", mode),
             sshRow, hostRow, UI.row("端口", nil, port),
         ]), after: 10)
-        add(UI.footnote("识别在你自己的 ITX 上完成，录音不出局域网。"))
+        add(UI.footnote("识别在你自己的 ITX 上完成，录音不经过别人的服务器。走 SSH 隧道时在外面也能用：ssh 按 ~/.ssh/config 选局域网还是公网入口，换了网络会自动重连。"))
         refresh()
         NotificationCenter.default.addObserver(forName: .connectionChanged, object: nil, queue: .main) { [weak self] _ in self?.refresh() }
     }

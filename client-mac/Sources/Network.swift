@@ -1,7 +1,9 @@
 // 连识别服务：ssh 隧道 + WebSocket。
 // 协议见 CapsWriter-Offline core/protocol.py：JSON 文本帧，音频是 16kHz 单声道 float32 的 base64。
 
+import AppKit
 import Foundation
+import Network
 
 // MARK: - ssh 隧道（不用在 ITX 上开防火墙端口）
 
@@ -32,6 +34,7 @@ final class Tunnel {
             "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2", "-o", "ConnectTimeout=8",
             "-L", "127.0.0.1:\(s.localPort):127.0.0.1:\(s.serverPort)",
             "-L", "127.0.0.1:\(s.polishLocalPort):127.0.0.1:\(s.polishPort)",   // 润色用的小模型
+            "-L", "127.0.0.1:\(s.transcribeLocalPort):127.0.0.1:\(s.transcribePort)",   // OpenAI 兼容的转写接口，输入法自己不用
             s.tunnelHost,
         ]
         let err = Pipe()
@@ -56,6 +59,46 @@ final class Tunnel {
     func stop() {
         stopped = true
         proc?.terminate()
+    }
+}
+
+// MARK: - 网络变化
+
+/// 换了网络（离开办公室、连上别的 Wi-Fi、合盖后在别处打开）时通知一声，好让隧道马上重开。
+/// ssh 每次起来都按 ~/.ssh/config 重新选路：在办公室走局域网，在外面走公网端口映射（at-office.sh 判）。
+/// 不重开的话，旧隧道要等 ServerAlive 两次没回（约 30 秒）才断，这段时间按住说话没反应。
+final class NetWatch {
+    private let monitor = NWPathMonitor()
+    private var last: String?
+    private var debounce: DispatchWorkItem?
+    var onChange: (() -> Void)?
+
+    func start() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            // 网卡、状态、地址族都一样就不算换网络；同一网卡换 Wi-Fi 时状态会先掉成 unsatisfied 再回来
+            let key = "\(path.status)|\(path.availableInterfaces.map(\.name).joined(separator: ","))|\(path.supportsIPv4)|\(path.supportsIPv6)"
+            DispatchQueue.main.async { self?.update(key, satisfied: path.status == .satisfied) }
+        }
+        monitor.start(queue: .global(qos: .utility))
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            Log.w("睡眠唤醒")
+            self?.fire()
+        }
+    }
+
+    private func update(_ key: String, satisfied: Bool) {
+        defer { last = key }
+        guard let last, last != key else { return }   // 第一次回调是启动时的现状，不算变化
+        Log.w("网络变了：\(key)")
+        if satisfied { fire() }
+    }
+
+    /// 网络刚变时常常连着来几次，等 2 秒稳定了再动
+    private func fire() {
+        debounce?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.onChange?() }
+        debounce = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: w)
     }
 }
 

@@ -8,7 +8,7 @@
 |---|---|
 | 目录 | `%USERPROFILE%\CapsWriter-Offline` |
 | 模型 | `models\Qwen3-ASR\Qwen3-ASR-1.7B\` |
-| 监听 | `127.0.0.1:6016`（只听本机，客户端走 ssh 隧道，防火墙没动） |
+| 监听 | `127.0.0.1:6016`（只听本机，客户端走 ssh 隧道，防火墙没动；在外面怎么连见「在外面用」） |
 | 自启 | 计划任务 `CapsWriterServer`，登录后启动，S4U 后台运行，挂了 1 分钟内重启，优先级 2（高于正常） |
 | 日志 | `logs\server_latest.log`（INFO 级别会记下识别出的文字） |
 
@@ -76,6 +76,52 @@ foreach ($n in "CapsWriterServer","NBPolishLLM") { $t = Get-ScheduledTask -TaskN
 schtasks /end /tn NBPolishLLM; schtasks /run /tn NBPolishLLM   # 重启
 Get-Content -Tail 20 %USERPROFILE%\nb-llm\server.log
 ```
+
+## 给 ClawChat 用的转写接口
+
+ClawChat 的语音输入只会说 OpenAI 的 `POST /v1/audio/transcriptions`，CapsWriter 是自有协议（下面「协议」一节），`transcribe_api.py` 在中间转一道：收 multipart 里的音频，用 ffmpeg 解成 16kHz 单声道 float32，按 Mac 客户端完整识别那一路的参数（分段 60 秒、重叠 4 秒）送给 CapsWriter，回 `{"text": ...}`。NB 输入法自己不走它。只用 Python 标准库，不用 pip。
+
+| 项 | 值 |
+|---|---|
+| 目录 | `%USERPROFILE%\nb-transcribe`（`transcribe_api.py`、`ffmpeg.exe`、`install-transcribe.ps1`） |
+| 监听 | `127.0.0.1:6018`，客户端的 ssh 隧道把本机 16018 转过来 |
+| 接口 | `POST /v1/audio/transcriptions`（字段 `file` 必填，`model` 随便填，`prompt` 当热词 `context`，`language` 填 `zh` / `en` 这类代码或不填 = 自动，`response_format` 支持 `json` / `text` / `verbose_json`）；`GET /v1/models` 只有一个 `qwen3-asr-transcribe`，名字带 transcribe，ClawChat 按名字认出来；`GET /health` |
+| 鉴权 | 不看 `Authorization`，ClawChat 里 API Key 随便填。服务只听本机，能进来的都是走 ssh 隧道的 |
+| 自启 | `install-transcribe.ps1` 注册计划任务 `NBTranscribeAPI`，和识别服务一样 |
+| 日志 | `nb-transcribe\server.log`，每次记音频时长、解码和识别各花多久、识别出的字 |
+| 速度 | 2 秒的 m4a 0.3 秒回来，74 秒的 5 秒（2026-11-03 实测，经隧道） |
+
+部署（识别服务已经装好的前提下）：
+
+1. 准备 Python 3.9 以上（ITX 上是 3.12）和一个 Windows 版 ffmpeg.exe。ITX 直连 GitHub 慢，在 Mac 上下 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 的 `ffmpeg-release-essentials.zip` 再 `scp`。ITX 上用的是机器上 DeepCool 软件自带的那份（同样是 gyan.dev 的 7.1 full build）拷过来的。
+2. 把 `transcribe_api.py`、`install-transcribe.ps1`、`ffmpeg.exe` 放进 `%USERPROFILE%\nb-transcribe\`，以登录用户身份跑：`powershell -NoProfile -ExecutionPolicy Bypass -File install-transcribe.ps1`。最后打出 `Running` 和型号列表就是起来了。
+3. 试一下（Mac 上，NB 输入法开着时它的隧道已经带了 16018）：
+
+   ```sh
+   curl -s 127.0.0.1:16018/v1/audio/transcriptions -F file=@a.m4a -F model=qwen3-asr-transcribe -F language=zh -F "prompt=ClawChat，ClawNest"
+   ```
+
+ClawChat 里填的服务地址：
+
+- Mac：`http://localhost:16018/v1`。NB 输入法开着就有这条隧道；没开的话自己开一条 `ssh -N -L 127.0.0.1:16018:127.0.0.1:6018 winrig`。
+- Android 真机：在插着手机的那台机器上开同样一条隧道，再 `adb reverse tcp:16018 tcp:16018`，手机里也填 `http://localhost:16018/v1`。
+
+只转一道，不做 NB 输入法客户端那些检查：人声太弱时 Qwen3-ASR 会把 `prompt` 原样抄出来，念一串热词时会顺着热词表往下背（见下面「协议」），这两种要调用方自己防。
+
+```powershell
+schtasks /end /tn NBTranscribeAPI; schtasks /run /tn NBTranscribeAPI   # 重启
+Get-Content -Tail 20 -Encoding UTF8 %USERPROFILE%\nb-transcribe\server.log
+```
+
+## 在外面用
+
+客户端连 ITX 一直是经 ssh 隧道（「设置 › 连接」里的 SSH 主机，默认 `winrig`），识别、润色、转写三个端口走同一条隧道。ITX 上的服务都只听本机，没对局域网或公网开端口。
+
+2026-11-02 起 `~/.ssh/config` 会按在不在办公室自动选路：在办公室走局域网 `itx-1.local`，在外面走公网端口映射（`Match originalhost winrig … !exec at-office.sh`，那份配置不在这个仓库里）。所以客户端这边什么都不用设，在外面照样能用。2026-11-03 在办公室里用 `CLAWCHAT_FORCE_REMOTE=1` 强制走公网那条测过：识别握手、润色、转写都通，往返 20 毫秒上下。
+
+客户端会在换了网络（离开办公室、换 Wi-Fi、合盖后在别处打开）和睡眠唤醒以后马上重开隧道，让 ssh 重新选路；不重开的话，旧隧道要等保活两次没回（约 30 秒）才断，这段时间按住说话没反应。正在说话、等结果或者润色的时候先不动，最多等 30 秒。日志里记「网络变了」「换了网络，重开隧道」。
+
+「局域网直连」那种方式（不经 ssh）在外面用不了，服务端也不该对公网开放。
 
 ## 协议
 
