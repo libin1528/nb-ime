@@ -8,8 +8,11 @@ $model = "Qwen3.5-4B-Q8_0.gguf"
 $user = "$env:COMPUTERNAME\$env:USERNAME"   # 经 ssh 跑时 USERDOMAIN 是 WORKGROUP，解析不出账户
 
 # 只听本机，客户端走 ssh 隧道；-np 1 一次一句；--no-mmap 权重整份进显存，不占着内存；
-# --reasoning-budget 0 关掉思考，整理文字用不着
+# --reasoning-budget 0 关掉思考，整理文字用不着；这版 llama.cpp 配 Qwen3.5 不认它，照样先想（一句 15 秒），
+# 所以再用 --chat-template-kwargs 默认关掉。NB 客户端每次请求自己也带 enable_thinking:false；
+# ClawChat 的语音输入发的是通用 OpenAI 请求、带不了这个字段，靠这里（2026-11-03）
 $argline = "-m `"$dir\$model`" --host 127.0.0.1 --port 6017 -ngl 99 -c 4096 -np 1 --jinja --reasoning-budget 0 " +
+        "--chat-template-kwargs `"{\`"enable_thinking\`":false}`" " +
         "--no-webui --no-mmap --log-file `"$dir\server.log`""
 Stop-ScheduledTask -TaskName NBPolishLLM -ErrorAction SilentlyContinue
 $action = New-ScheduledTaskAction -Execute $bin -Argument $argline -WorkingDirectory $dir
