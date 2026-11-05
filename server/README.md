@@ -1,6 +1,6 @@
 # 服务端：ITX 上的 CapsWriter
 
-识别跑在局域网里的 ITX（`itx-1.local`，RX 6700 XT 12GB），用的是 [CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline) v2.6 的服务端，模型 Qwen3-ASR-1.7B（q5_k）。解码走 Vulkan，AMD 显卡能用上，显存约 1.6GB，进程内存几十 MB。
+识别跑在局域网里的 ITX（`itx-1.local`，RX 6700 XT 12GB），用的是 [CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline) v2.6 的服务端，模型 Qwen3-ASR-1.7B（q5_k）。音频编码器跑 ONNX CPU，文本解码走 Vulkan，AMD 显卡能用上；2026-11-05 实测识别子进程工作集约 1.3GB、专用显存约 1.8GB。CPU 忙仍会拖慢识别，见[满载实测](../docs/2026-11-05-itx-load-latency.md)。
 
 ## 现在的部署
 
@@ -24,7 +24,7 @@
 2. `scp` 到 ITX，解压：服务端解到用户目录 `%USERPROFILE%\`，模型解到 `CapsWriter-Offline\models\Qwen3-ASR\`。
    Mac 上的 `unzip` 会把包里的中文文件名弄坏，要在 ITX 上用 `Expand-Archive` 解。
 3. 改 `config_server.py` 的上面两处。
-4. 在 ITX 上跑 `install-autostart.ps1`。
+4. 在 ITX 上以部署用户身份打开**管理员 PowerShell**，跑 `install-autostart.ps1`；它会写入识别映像的 IFEO 优先级，再注册并启动任务。
 
 ## 常用操作
 
@@ -37,13 +37,38 @@ Get-Content -Tail 20 -Encoding UTF8 %USERPROFILE%\CapsWriter-Offline\logs\server
 
 ### 进程优先级
 
-计划任务不写优先级时默认是 7，起来的进程是「低于正常」（BelowNormal）：CPU 抢不过同一台机器上的别的程序，Windows 还会把它的内存优先换出到硬盘。ITX 上跑 Flutter 测试那种重活时识别会变得很慢，闲了几分钟后的第一句尤其慢（10-29 14:19 一段 2 秒的预览要 38 秒）。所以两个任务都设成优先级 2（高于正常），两个注册脚本里写了 `-Priority 2`。已经注册好的任务可以直接改：
+计划任务不写优先级时默认是 7，起来的进程是「低于正常」（BelowNormal）：CPU 抢不过同一台机器上的别的程序。ITX 上跑 Flutter 测试那种重活时识别会变得很慢，闲了几分钟后的第一句尤其慢（10-29 14:19 一段 2 秒的预览要 38 秒）。所以两个任务都设成优先级 2（高于正常），两个注册脚本里写了 `-Priority 2`。已经注册好的任务可以直接改：
 
 ```powershell
 foreach ($n in "CapsWriterServer","NBPolishLLM") { $t = Get-ScheduledTask -TaskName $n; $t.Settings.Priority = 2; Set-ScheduledTask -InputObject $t }
 ```
 
-改完要重启服务才生效。识别服务的主进程和 llama-server 是「高于正常」；识别的两个子进程是「正常」（Windows 里父进程高于正常时子进程不继承，回到正常），比原来的「低于正常」好，要再往上得改注册表里的系统级设置，没做。
+改完要重启服务才生效。Windows 不默认继承父进程的 AboveNormal，单靠任务 Priority 2，识别的两个子进程仍会回到 Normal。2026-11-05 已采用 IFEO 注册表设置：
+
+`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\start_server.exe\PerfOptions` 下，`CpuPriorityClass` 为 **DWORD 6（AboveNormal）**。这是 IFEO 的编号，不是计划任务的 Priority 2。主进程和两个子进程的实际映像名都是本项目的 `start_server.exe`，新建进程即生效；不使用启动包装脚本。实测与回归见[调查记录](../docs/2026-11-05-itx-load-latency.md)。
+
+`install-autostart.ps1` 需要管理员权限，幂等地只设置 `CpuPriorityClass`，保留同键的其它值；注册表写入失败时先停止安装，不打断正在运行的服务。IFEO 按映像名匹配，不按安装路径匹配；若以后有其它无关软件也叫 `start_server.exe`，先处理命名冲突，不向 `python.exe` 等通用解释器设置此项。llama-server 和转写服务的任务及参数不变。CPU 优先级不等于内存优先级，不能保证工作集不被换出。
+
+检查（管理员 PowerShell；进程检查也可普通权限执行）：
+
+```powershell
+$key = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\start_server.exe\PerfOptions'
+Get-ItemProperty -Path $key -Name CpuPriorityClass   # 应为 6
+(Get-Item $key).GetValueKind('CpuPriorityClass')    # 应为 DWord
+Get-Process start_server | Select Id, Path, PriorityClass   # 应为三个 AboveNormal
+Get-Process llama-server | Select Id, PriorityClass        # 保持 AboveNormal
+```
+
+撤销（管理员 PowerShell）：这次新建的 `PerfOptions` 里只有这一项，可删整个键，再按上面的「常用操作」重启 CapsWriter；主进程仍由任务设为 AboveNormal，子进程恢复 Normal。**若以后加入了其它值，只删除 `CpuPriorityClass`，保留其它值**，也不要删除映像键下其它 IFEO 配置。以后再运行安装脚本会重新启用这一项。
+
+```powershell
+$key = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\start_server.exe\PerfOptions'
+Remove-Item -Path $key   # 确认只有 CpuPriorityClass 时执行；有子键会要求确认
+# 若已有其它值，改为：Remove-ItemProperty -Path $key -Name CpuPriorityClass
+schtasks /end /tn CapsWriterServer
+Get-Process start_server -ErrorAction SilentlyContinue | Stop-Process -Force
+schtasks /run /tn CapsWriterServer
+```
 
 ## 润色用的小模型
 
