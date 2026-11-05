@@ -1,6 +1,7 @@
 import Foundation
 
 enum Log {
+    private static let lock = NSLock()
     static let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/NBIME.log")
     static let fmt: DateFormatter = {
@@ -10,6 +11,7 @@ enum Log {
     }()
 
     static func w(_ s: String) {
+        lock.lock(); defer { lock.unlock() }
         let line = "\(fmt.string(from: Date())) \(s)\n"
         let data = Data(line.utf8)
         if let h = try? FileHandle(forWritingTo: url) {

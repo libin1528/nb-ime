@@ -152,6 +152,8 @@ Knowing what it was written for tells you what to swap out:
 | Edit log | [`Edits.swift`](client-mac/Sources/Edits.swift) | After pasting, watches that text field through the Accessibility API and records what you changed the text into, locally only, as data for future tuning; password fields are skipped, Electron apps are asked to turn on their accessibility tree first |
 | Menu bar, settings, onboarding | [`MenuBar.swift`](client-mac/Sources/MenuBar.swift) · [`SettingsWindow.swift`](client-mac/Sources/SettingsWindow.swift) · [`Onboarding.swift`](client-mac/Sources/Onboarding.swift) | The menu-bar icon is the status: red while recording, cycling while recognizing, gray when offline; every setting has a UI |
 
+Settings › 通用 (General) › 声音 (Sound) has a “Lower playing audio while speaking” switch (off by default). On hotkey down, a background check detects other apps’ audio and fades system volume to zero over about 0.15 seconds, without waiting for microphone startup or the hold threshold. That recording skips its start cue; otherwise cues work normally. Release raises the volume for the end cue, then fades back over 1.25 seconds. Playback continues without player commands. See the [implementation notes](docs/2026-11-05-duck-volume.md).
+
 ## Measured, and learned the hard way
 
 Each of these is a line or two of code, and each came from a measurement or a failure. Details are in [`docs/`](docs/) and the commit history:

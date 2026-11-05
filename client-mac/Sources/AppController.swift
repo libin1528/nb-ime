@@ -17,6 +17,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     /// ssh 报 No route to host：多半是系统设置里没允许 NB 输入法访问本地网络
     private var localNetworkBlocked = false
     private let recorder = Recorder()
+    private let mediaDuck = MediaDuck()
     private var hotkey: Hotkey!
     private lazy var capsule = Capsule()
     private var menuBar: MenuBar?
@@ -114,7 +115,11 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         waitForAccessibility(first: true)
     }
 
-    func applicationWillTerminate(_ n: Notification) { tunnel?.stop() }
+    func applicationWillTerminate(_ n: Notification) {
+        mediaDuck.shutdown()
+        recorder.stop()
+        tunnel?.stop()
+    }
 
     // MARK: 连接
 
@@ -243,13 +248,17 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             Log.w("按下时上一次还停在 \(phase)（\(String(format: "%.0f", stuck)) 秒了），先收掉")
             cancelRecording("上一次没收尾")
         }
-        edits.finish()   // 又要说下一句了，上一句改成什么样就按现在的记
-        pasteWaiting()   // 上一句还在等焦点：要说下一句了，说明人已经回到输入框
         guard client.connected else {
+            edits.finish()
+            pasteWaiting()
             Log.w("按下没反应：没连上识别服务")
             capsule.show(.offline, for: 2.2)
             return
         }
+        phase = .holding
+        mediaDuck.begin(enabled: Settings.current.pauseMedia)
+        edits.finish()   // 又要说下一句了，上一句改成什么样就按现在的记
+        pasteWaiting()   // 上一句还在等焦点：要说下一句了，说明人已经回到输入框
         taskId = UUID().uuidString
         startTime = Date().timeIntervalSince1970
         pending = []
@@ -263,18 +272,19 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             if ms > 300 { Log.w("开麦克风用了 \(ms)ms") }
             frontFocus = EditWatcher.focused()
         } catch {
+            phase = .idle
+            mediaDuck.end()
             capsule.show(.note("mic.slash", "麦克风打不开"), for: 2)
             Log.w("录音失败 \(error.localizedDescription)")
             return
         }
-        phase = .holding
         let id = taskId
         DispatchQueue.main.asyncAfter(deadline: .now() + Settings.current.holdThreshold) { [weak self] in
             guard let self, self.taskId == id, self.phase == .holding else { return }
             self.phase = .recording
             self.startPreview()
             self.flush()
-            Sounds.start()
+            self.mediaDuck.playStartSound { Sounds.start() }
             self.capsule.showListening()
             self.refreshStatus()
         }
@@ -283,16 +293,18 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private func hotkeyUp() {
         switch phase {
         case .holding:
+            mediaDuck.end()
             recorder.stop()
             phase = .idle
             Log.w("按得太短（不到 \(Settings.current.holdThreshold) 秒），不录")
         case .recording:
             phase = .finishing
-            Sounds.stop()
+            mediaDuck.end(playSound: Settings.current.sounds ? { Sounds.stop() } : nil)
             let id = taskId
             DispatchQueue.main.asyncAfter(deadline: .now() + Settings.current.tailSeconds) { [weak self] in
                 guard let self, self.taskId == id else { return }
                 self.recorder.stop()
+                self.mediaDuck.end()
                 // 让最后几块转换好的音频先进队列
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.finishTask(id) }
             }
@@ -349,6 +361,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
 
     private func cancelRecording(_ why: String) {
         Log.w("取消录音：\(why)")
+        mediaDuck.end()
         recorder.stop()
         if phase == .recording || phase == .finishing {
             discard.insert(taskId)

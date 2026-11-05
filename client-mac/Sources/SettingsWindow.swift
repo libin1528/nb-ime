@@ -160,7 +160,9 @@ final class GeneralPane: Pane {
         }
         add(GroupView([
             UI.row("麦克风", "选的麦克风拔掉或没开时，先用系统默认的", mic),
-            UI.row("开始和结束时的提示音", nil, UI.toggle(s.sounds) { Settings.current.sounds = $0 }),
+            UI.row("说话时压低正在播放的声音", "平滑降到静音，结束后渐进恢复；播放进度继续",
+                   UI.toggle(s.pauseMedia) { Settings.current.pauseMedia = $0 }),
+            UI.row("开始和结束时的提示音", "压低声音时跳过开始提示音，结束提示音照常播放", UI.toggle(s.sounds) { Settings.current.sounds = $0 }),
         ]))
         add(UI.sectionTitle("文字"), after: 6)
         let lang = NSPopUpButton()
