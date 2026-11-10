@@ -146,6 +146,7 @@ https://github.com/libin1528/nb-ime 是别人给自己做的 Mac 语音输入法
 | 防模型抄热词表 | [`Settings.swift`](client-mac/Sources/Settings.swift) 的 `strippedEcho` | 整句都是热词就倒序热词再认一遍；真话前面抄了一串（从第一个热词起按原顺序连着 4 个以上）就把那段去掉 |
 | 识别后润色 | [`Polish.swift`](client-mac/Sources/Polish.swift) | 「去掉口误」「整理格式」各有关 / 中 / 强三档。一字不差的重说先用代码删掉，不交给模型；不信任小模型的输出，过一遍「只删不加、热词都在、没删人称、没删太多」的检查，不过关就输入原文 |
 | 粘贴前对焦点 | [`AppController.swift`](client-mac/Sources/AppController.swift) | 按下快捷键时记下焦点；粘之前焦点换到了不能打字的地方，就等它回来（最多 4 秒），菜单栏里还能重新输入一次 |
+| 远程粘贴 | [`Paster.swift`](client-mac/Sources/Paster.swift) | 发送完整的 Command 按下、V 按下／松开、Command 松开；RustDesk 前台时先等 0.7 秒供剪贴板同步，粘贴后保留 2 秒再恢复原剪贴板，连续两句排队输入。RustDesk 连接 Windows 时仍需开启 Control／Command 置换和剪贴板同步 |
 | 改字记录 | [`Edits.swift`](client-mac/Sources/Edits.swift) | 粘贴后用辅助功能接口盯着那个输入框，记下你把这段字改成了什么，只存本机，给以后的优化攒数据；密码框不读，Electron 应用先请它打开辅助功能树 |
 | 菜单栏、设置、引导 | [`MenuBar.swift`](client-mac/Sources/MenuBar.swift) · [`SettingsWindow.swift`](client-mac/Sources/SettingsWindow.swift) · [`Onboarding.swift`](client-mac/Sources/Onboarding.swift) | 菜单栏图标本身就是状态：录音变红、识别中轮流亮、连不上变灰；所有配置都有界面 |
 

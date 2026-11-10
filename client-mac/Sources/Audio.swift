@@ -1,4 +1,4 @@
-// 录音（转成 16kHz 单声道 float32）、能录音的设备、提示音、粘贴。
+// 录音（转成 16kHz 单声道 float32）、能录音的设备、提示音。
 
 import AudioToolbox
 import AVFoundation
@@ -190,40 +190,4 @@ enum InputDevices {
 enum Sounds {
     static func start() { if Settings.current.sounds { NSSound(named: "Tink")?.play() } }
     static func stop() { if Settings.current.sounds { NSSound(named: "Pop")?.play() } }
-}
-
-enum Paster {
-    static func paste(_ text: String, restore: Bool) {
-        let pb = NSPasteboard.general
-        let saved: [NSPasteboardItem] = (pb.pasteboardItems ?? []).map { item in
-            let copy = NSPasteboardItem()
-            for t in item.types { if let d = item.data(forType: t) { copy.setData(d, forType: t) } }
-            return copy
-        }
-        pb.clearContents()
-        let item = NSPasteboardItem()
-        item.setString(text, forType: .string)
-        // 让剪贴板管理器不记这一条
-        item.setData(Data(), forType: NSPasteboard.PasteboardType("org.nspasteboard.TransientType"))
-        pb.writeObjects([item])
-        let ours = pb.changeCount
-
-        let src = CGEventSource(stateID: .combinedSessionState)
-        for down in [true, false] {
-            let e = CGEvent(keyboardEventSource: src, virtualKey: 9, keyDown: down)   // 9 = V
-            e?.flags = .maskCommand
-            e?.post(tap: .cghidEventTap)
-        }
-        guard restore, !saved.isEmpty else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            guard pb.changeCount == ours else { return }
-            pb.clearContents()
-            pb.writeObjects(saved)
-        }
-    }
-
-    static func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
 }
