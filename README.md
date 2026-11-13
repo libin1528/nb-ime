@@ -82,6 +82,8 @@
 
 菜单栏图标本身就是状态：录音变红、识别中轮流亮、连不上变灰。菜单里最新一条点一下就重新输入一次，「最近识别」里的点了是复制。
 
+「设置 › 外观」可以预览并选择三款输入皮肤：保留彩色边缘光效的「AI 流光」、没有彩光的「通透玻璃」，以及小字号、小状态条、无浮窗阴影的「极简平面」。选择自动保存，录音、实时文字、识别中和结果提示都跟随所选皮肤。
+
 「设置 › 通用 › 声音」可开启「说话时压低正在播放的声音」（默认关）：按下热键即后台检测，有其它 App 输出时用约 0.15 秒降到 0，不等开麦或长按确认，并跳过本次开始提示音；没压音量时提示音照常。结束时抬音量播放结束提示音，再用 1.25 秒渐进恢复。播放进度继续，不控制播放器。做法与实测见[实现记录](docs/2026-11-05-duck-volume.md)。
 
 ## 把它当上下文用
@@ -138,15 +140,15 @@ https://github.com/libin1528/nb-ime 是别人给自己做的 Mac 语音输入法
 | 功能 | 代码 | 值得看的地方 |
 |---|---|---|
 | 录音胶囊 | [`Capsule.swift`](client-mac/Sources/Capsule.swift) | 系统的 `NSGlassEffectView`（clear 玻璃，文字下垫一层反色薄底）；从一颗圆长成胶囊，状态之间整块连续变形；波形跟着音量跳，说话时向上展开实时出字 |
-| 全局快捷键 | [`Hotkey.swift`](client-mac/Sources/Hotkey.swift) | 用 CGEventTap 同时听键盘和鼠标：单按修饰键、F 键、鼠标侧键都能当快捷键，可以设两个；系统停用钩子后按实际按键状态重新对齐 |
-| 录音和麦克风 | [`Audio.swift`](client-mac/Sources/Audio.swift) · [`Recordings.swift`](client-mac/Sources/Recordings.swift) | 可以跟随系统或指定麦克风，插拔自动刷新；`AVAudioEngine` 只认建它时的设备，换了设备就重建。一直没声音（低于 -55 dB）就不送去识别；最近 20 段录音存成 wav，历史里能回听 |
-| 流式预览 | [`AppController.swift`](client-mac/Sources/AppController.swift) | 同一段录音走两条 WebSocket：一条每 2 秒出一次预览，一条松开后出完整结果，用完整结果输入 |
+| 全局快捷键 | [`Hotkey.swift`](client-mac/Sources/Hotkey.swift) | 用 CGEventTap 同时听键盘和鼠标：单按修饰键、F 键、鼠标侧键都能当快捷键，可以设两个；系统停用钩子后按实际按键状态重新对齐；RustDesk 中绑定为录音键的 Option 单按不传给远端，组合键仍完整传递 |
+| 录音和麦克风 | [`Audio.swift`](client-mac/Sources/Audio.swift) · [`Recordings.swift`](client-mac/Sources/Recordings.swift) | 可以跟随系统或指定麦克风，插拔自动刷新；`AVAudioEngine` 只认建它时的设备，切换或唤醒后会重新准备；开麦后一秒收不到采样会自动重建。一直没声音（低于 -55 dB）就不送去识别；最近 20 段录音存成 wav，历史里能回听 |
+| 流式预览 | [`AppController.swift`](client-mac/Sources/AppController.swift) | 同一段录音走两条 WebSocket：优先用 Mac 已安装的 Apple 语音模型实时返回中间文字，远端预览作为回退；松开后用完整识别结果输入。稳定文字保留，新增和修正部分渐进显示，长文本平滑滚动 |
 | 热词和「一定替换」 | [`WordsPane.swift`](client-mac/Sources/WordsPane.swift) · [`Replace.swift`](client-mac/Sources/Replace.swift) | 热词页默认是可以点着改的列表，也能切成一行一个的文本；写 `错的=对的` 就是一定替换，按整词、长的先匹配、只换一遍，写错的规则当场标黄说为什么 |
 | 热词按读音纠正 | [`Hotfix.swift`](client-mac/Sources/Hotfix.swift) | 模型写成「万三」，读音和热词「Wan3」一样就换回来；中文要声调也一样，挨着数字、量词的不换 |
 | 防模型抄热词表 | [`Settings.swift`](client-mac/Sources/Settings.swift) 的 `strippedEcho` | 整句都是热词就倒序热词再认一遍；真话前面抄了一串（从第一个热词起按原顺序连着 4 个以上）就把那段去掉 |
 | 识别后润色 | [`Polish.swift`](client-mac/Sources/Polish.swift) | 「去掉口误」「整理格式」各有关 / 中 / 强三档。一字不差的重说先用代码删掉，不交给模型；不信任小模型的输出，过一遍「只删不加、热词都在、没删人称、没删太多」的检查，不过关就输入原文 |
 | 粘贴前对焦点 | [`AppController.swift`](client-mac/Sources/AppController.swift) | 按下快捷键时记下焦点；粘之前焦点换到了不能打字的地方，就等它回来（最多 4 秒），菜单栏里还能重新输入一次 |
-| 远程粘贴 | [`Paster.swift`](client-mac/Sources/Paster.swift) | 发送完整的 Command 按下、V 按下／松开、Command 松开；RustDesk 前台时先等 0.7 秒供剪贴板同步，粘贴后保留 2 秒再恢复原剪贴板，连续两句排队输入。RustDesk 连接 Windows 时仍需开启 Control／Command 置换和剪贴板同步 |
+| 远程粘贴 | [`Paster.swift`](client-mac/Sources/Paster.swift) | 读取当前 RustDesk 会话的平台与 Control／Command 置换设置，发送对应的完整粘贴按键；先等 0.7 秒供剪贴板同步，粘贴后保留 2 秒再恢复原剪贴板，连续两句排队输入。等待时切换远程会话会取消粘贴；需要开启剪贴板同步 |
 | 改字记录 | [`Edits.swift`](client-mac/Sources/Edits.swift) | 粘贴后用辅助功能接口盯着那个输入框，记下你把这段字改成了什么，只存本机，给以后的优化攒数据；密码框不读，Electron 应用先请它打开辅助功能树 |
 | 菜单栏、设置、引导 | [`MenuBar.swift`](client-mac/Sources/MenuBar.swift) · [`SettingsWindow.swift`](client-mac/Sources/SettingsWindow.swift) · [`Onboarding.swift`](client-mac/Sources/Onboarding.swift) | 菜单栏图标本身就是状态：录音变红、识别中轮流亮、连不上变灰；所有配置都有界面 |
 
@@ -204,8 +206,9 @@ https://github.com/libin1528/nb-ime 是别人给自己做的 Mac 语音输入法
 
 调试：
 
+- `NBIME --mic-test`：只统计内置麦克风采样，不保存或发送音频；依次验证正常录音、唤醒通知和设备重连通知后的录音。通知由测试进程模拟，不会让电脑真的睡眠。
 - `NBIME --test-file <音频>`：不用麦克风，按实时节奏走一遍同样的发送路径（含流式预览），打印 `PREVIEW` / `RESULT`。
-- `NBIME --demo <界面>`：截图用，`listen` `quiet` `preview` `long` `think` `done` `miss` `offline` `nosound` `morph`（录变形用的一整套）`menu` `onboarding` `settings:0`…`settings:6`。
+- `NBIME --demo <界面>`：截图用，`listen` `quiet` `preview` `long` `think` `done` `miss` `offline` `nosound` `stream`（逐段预览）`morph`（录变形用的一整套）`menu` `onboarding` `settings:0`…`settings:7`（外观）。
 - `NBIME --polish-test <文件>`：文件里一行一句，每句按润色的 8 种档位组合各跑一遍，一行一个 JSON（`--levels 中中,强强` 只跑这几种）。改提示词前后都跑一遍对比。
 - `NBIME --edit-test <刚输入的字> [--seconds N]`：假装刚把这段字粘进了焦点输入框，盯 N 秒后把改字结果写进日志，不进记录。要用 `open -g -n -a` 启动装好的 app（辅助功能权限认的是 app）。
 - 这几种模式会借用已经开着的隧道，不动它。
