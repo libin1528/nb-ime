@@ -29,7 +29,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     init(host: SettingsHost) { self.host = host }
 
-    enum Tab: Int { case general, hotkey, words, polish, history, conn, about }
+    enum Tab: Int { case general, hotkey, words, polish, history, conn, about, appearance }
 
     func show(_ tab: Tab? = nil) {
         if window == nil { build() }
@@ -55,6 +55,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             ("历史", "clock", HistoryPane()),
             ("识别服务", "desktopcomputer", ConnPane(host: host)),
             ("关于", "info.circle", AboutPane()),
+            ("外观", "paintpalette", AppearancePane()),
         ]
         for (title, symbol, vc) in items {
             let item = NSTabViewItem(viewController: vc)

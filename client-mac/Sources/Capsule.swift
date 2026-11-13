@@ -1,6 +1,6 @@
 // 录音提示 A：屏幕底部的胶囊。跟音量跳的波形、计时、没听到声音、识别中、已输入、没听清、连不上。
 // 开了流式预览时，第一段文字回来后胶囊向上展开成一块，实时显示文字（design/mockup.html 2.1 节）。
-// 底子是系统的 Liquid Glass（NSGlassEffectView）：透出并折射背后的内容，颜色跟着背后深浅变；
+// 皮肤可选 AI 流光、通透玻璃或极简平面；前两款使用系统的 Liquid Glass（NSGlassEffectView）。
 // 出现时从一颗圆长成胶囊，状态之间整块形状连续变形，消失时缩回去。
 
 import Cocoa
@@ -16,8 +16,9 @@ final class Capsule {
     }
 
     private let panel: NSPanel
-    private let glass = NSGlassEffectView()
-    private let view = CapsuleView()
+    private let surface = CapsuleSurface()
+    private var view: CapsuleView { surface.content }
+    private var settingsObserver: NSObjectProtocol?
     private var timer: Timer?
     private var hideWork: DispatchWorkItem?
     private var visible = false
@@ -34,10 +35,24 @@ final class Capsule {
         panel.hasShadow = true
         panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        glass.style = .clear            // 比 regular 透，背后的内容看得更清楚；文字靠 CapsuleView 里垫的一层薄色托住
-        glass.cornerRadius = CapsuleView.radius
-        glass.contentView = view
-        panel.contentView = glass
+        panel.contentView = surface
+        applySkin()
+        settingsObserver = NotificationCenter.default.addObserver(forName: .settingsChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.applySkin()
+        }
+    }
+
+    deinit {
+        if let settingsObserver { NotificationCenter.default.removeObserver(settingsObserver) }
+        timer?.invalidate()
+    }
+
+    private func applySkin() {
+        let skin = Settings.current.capsuleSkin
+        guard surface.skin != skin else { return }
+        surface.skin = skin
+        panel.hasShadow = skin != .minimal
+        if visible { resize(animated: true) }
     }
 
     // MARK: 对外
@@ -51,7 +66,7 @@ final class Capsule {
 
     func setLevel(_ v: Float) { view.target = v }
 
-    /// 预览文字：服务端每次发回到目前为止的全文，整段替换
+    /// 预览文字：稳定部分保留，只让新增和修正的文字渐进出现。
     func setPreview(_ text: String) {
         guard view.mode == .listening else { return }
         view.setPreview(text)
@@ -155,8 +170,8 @@ final class Capsule {
             let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
                 guard let self else { return }
                 self.view.tick()
-                // 「没听到声音」的提示比波形宽，出现和消失时跟着变
-                if !self.view.expanded, self.view.desiredSize() != self.targetSize { self.resize(animated: true) }
+                // 预览换行和静音提示出现时，窗口大小一起平滑变化。
+                if self.view.desiredSize() != self.targetSize { self.resize(animated: true) }
             }
             RunLoop.main.add(t, forMode: .common)
             timer = t
@@ -168,14 +183,14 @@ final class Capsule {
 
     /// 出现前 / 消失后的样子：同一个底边中点上的一颗圆
     private func seed(of r: NSRect) -> NSRect {
-        let d = CapsuleView.rowH
+        let d = view.skin.rowHeight
         return NSRect(x: (r.midX - d / 2).rounded(), y: r.minY, width: d, height: d)
     }
 }
 
 // MARK: - 胶囊里面画的东西
 
-private final class CapsuleView: NSView {
+final class CapsuleView: NSView {
     var mode = Capsule.Mode.listening { didSet { needsDisplay = true } }
     // 「没听到声音」只在按下以后一直没出过人声时提示；说过话以后句间停顿不算
     var target: Float = 0 { didSet { if target > 0.12 { heard = true } } }
@@ -186,26 +201,21 @@ private final class CapsuleView: NSView {
     private var frozen: TimeInterval?
     private var heard = false
     private var preview = ""
-    private var newFrom = 0                  // 预览里从这个位置（UTF-16）往后是刚变的，淡入
-    private var newAt = Date.distantPast
+    private var livePreview = LivePreview()
+    private var previewHeight: CGFloat = 0
+    private var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
-    static let rowH: CGFloat = 44
-    static let lineH: CGFloat = 22
-    static let maxLines = 3
-    static let expandedW: CGFloat = 400
-    static let textFont = NSFont.systemFont(ofSize: 14)
-    static let msgFont = NSFont.systemFont(ofSize: 13, weight: .medium)
-    static let smallFont = NSFont.systemFont(ofSize: 12)
-    static let timeFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
-    static let veil = NSColor(name: nil) { a in
-        a.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 0, alpha: 0.28) : NSColor(white: 1, alpha: 0.32)
+    var skin = CapsuleSkin.intelligence {
+        didSet { previewHeight = 0; needsDisplay = true }
     }
+    static let maxLines = 3
     static let red = NSColor(hex: 0xff453a), green = NSColor(hex: 0x30d158), orange = NSColor(hex: 0xff9f0a)
 
     override var isFlipped: Bool { true }
 
     func reset() {
         start = Date()
+        frame_ = 0
         heard = false
         frozen = nil
         level = 0
@@ -214,31 +224,33 @@ private final class CapsuleView: NSView {
         clearPreview()
     }
 
-    func freeze() { frozen = Date().timeIntervalSince(start) }
+    func freeze() {
+        frozen = Date().timeIntervalSince(start)
+        livePreview.finish(at: ProcessInfo.processInfo.systemUptime)
+    }
 
     func clearPreview() {
         preview = ""
-        newFrom = 0
+        livePreview = LivePreview()
+        previewHeight = 0
     }
 
     func setPreview(_ text: String) {
-        let old = preview as NSString, new = text as NSString
-        var i = 0
-        while i < old.length, i < new.length, old.character(at: i) == new.character(at: i) { i += 1 }
-        if i < new.length { newFrom = i; newAt = Date() }
+        livePreview.update(text, at: ProcessInfo.processInfo.systemUptime, animated: !reduceMotion)
         preview = text
         if !text.isEmpty { heard = true }
+        if previewHeight == 0 { previewHeight = textHeight(skin.expandedWidth - skin.inset * 2) }
         needsDisplay = true
     }
 
     var expanded: Bool { !preview.isEmpty && (mode == .listening || mode == .thinking) }
-    /// 收起和展开用同一个圆角，变形时只有长宽在变；左下角的圆钮离边 8，圆角正好和它同心
-    static let radius: CGFloat = 22
     private var elapsed: TimeInterval { frozen ?? Date().timeIntervalSince(start) }
     private var quiet: Bool { mode == .listening && !heard && elapsed > 2 }
 
     func tick() {
         level = level * 0.55 + target * 0.45
+        let height = textHeight(skin.expandedWidth - skin.inset * 2)
+        previewHeight = reduceMotion ? height : previewHeight + (height - previewHeight) * 0.22
         frame_ += 1
         if frame_ % 2 == 0 { hist.removeFirst(); hist.append(level) }
         needsDisplay = true
@@ -247,30 +259,29 @@ private final class CapsuleView: NSView {
     // MARK: 尺寸
 
     private func textHeight(_ width: CGFloat) -> CGFloat {
-        let h = attributed(preview, now: Date()).boundingRect(with: NSSize(width: width, height: 10_000),
+        let h = attributed(preview).boundingRect(with: NSSize(width: width, height: 10_000),
                                                                options: [.usesLineFragmentOrigin]).height
-        return max(Self.lineH, (h / Self.lineH).rounded() * Self.lineH)
+        return max(skin.lineHeight, (h / skin.lineHeight).rounded() * skin.lineHeight)
     }
 
     func desiredSize() -> NSSize {
         if expanded {
-            let h = min(textHeight(Self.expandedW - 36), Self.lineH * CGFloat(Self.maxLines))
-            return NSSize(width: Self.expandedW, height: Self.rowH + 14 + h + 2)
+            let h = min(textHeight(skin.expandedWidth - skin.inset * 2), skin.lineHeight * CGFloat(Self.maxLines))
+            return NSSize(width: skin.expandedWidth, height: skin.rowHeight + skin.topInset + h + 2)
         }
-        return NSSize(width: (8 + 28 + 10 + contentWidth() + 16).rounded(), height: Self.rowH)
+        return NSSize(width: (skin.contentX + contentWidth() + skin.trailingInset).rounded(), height: skin.rowHeight)
     }
 
     private static let timeW: CGFloat = 32
-    private static let waveW: CGFloat = 24 * 5 - 2
 
     private func contentWidth() -> CGFloat {
         switch mode {
-        case .listening: return quiet ? width(Self.quietText, Self.msgFont) + 10 + Self.timeW : Self.waveW + 10 + Self.timeW
-        case .thinking: return width("识别中", Self.msgFont) + 10 + 22 + 14 + Self.timeW
-        case .done(let n): return width("已输入", Self.msgFont) + 6 + width("\(n) 字", Self.smallFont)
-        case .miss: return width("没听清，再说一次", Self.msgFont)
-        case .offline: return width("连不上识别服务", Self.msgFont) + 6 + width("正在重试", Self.smallFont)
-        case .note(_, let t): return width(t, Self.msgFont)
+        case .listening: return quiet ? width(Self.quietText, skin.messageFont) + 10 + Self.timeW : skin.waveWidth + 10 + Self.timeW
+        case .thinking: return width("识别中", skin.messageFont) + 10 + 22 + 14 + Self.timeW
+        case .done(let n): return width("已输入", skin.messageFont) + 6 + width("\(n) 字", skin.smallFont)
+        case .miss: return width("没听清，再说一次", skin.messageFont)
+        case .offline: return width("连不上识别服务", skin.messageFont) + 6 + width("正在重试", skin.smallFont)
+        case .note(_, let t): return width(t, skin.messageFont)
         }
     }
 
@@ -283,46 +294,50 @@ private final class CapsuleView: NSView {
     override func draw(_ dirty: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let b = bounds
-        // 底子是透明玻璃；先垫一层和文字反色的薄色，深背景上的黑字（浅背景上的白字）也看得清
-        Self.veil.setFill()
-        NSBezierPath(roundedRect: b, xRadius: Self.radius, yRadius: Self.radius).fill()
+        // 玻璃下垫反色薄底托住文字；平面皮肤和「减少透明度」使用实色。
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        skin.background(dark: dark, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency).setFill()
+        NSBezierPath(roundedRect: b, xRadius: skin.radius, yRadius: skin.radius).fill()
         // 颜色都用系统的文字色，跟着玻璃的深浅自动变
         let ink = NSColor.labelColor
+        if skin == .intelligence, mode == .listening || mode == .thinking { drawListeningGlow(ctx, b) }
 
         // 宽度跟着窗口动画在变，按当前宽度决定是不是展开着
-        if !preview.isEmpty, b.height > Self.rowH + 8 { drawPreview(ctx, b) }
+        if !preview.isEmpty, b.height > skin.rowHeight + 8 { drawPreview(ctx, b) }
 
-        let cy = b.height - Self.rowH / 2
-        let badge = NSRect(x: 8, y: cy - 14, width: 28, height: 28)
-        var x: CGFloat = 46
+        let cy = b.height - skin.rowHeight / 2
+        let badge = NSRect(x: 8, y: cy - skin.badgeSize / 2, width: skin.badgeSize, height: skin.badgeSize)
+        var x = skin.contentX
         let now = Date()
 
         switch mode {
         case .listening:
-            let ring = badge.insetBy(dx: -CGFloat(level) * 7.7, dy: -CGFloat(level) * 7.7)
-            Self.red.withAlphaComponent(CGFloat(0.15 + level * 0.6)).setStroke()
-            let rp = NSBezierPath(ovalIn: ring.insetBy(dx: 1, dy: 1))
-            rp.lineWidth = 2
-            rp.stroke()
+            if skin == .intelligence {
+                let ring = badge.insetBy(dx: -CGFloat(level) * 7.7, dy: -CGFloat(level) * 7.7)
+                Self.red.withAlphaComponent(CGFloat(0.15 + level * 0.6)).setStroke()
+                let rp = NSBezierPath(ovalIn: ring.insetBy(dx: 1, dy: 1))
+                rp.lineWidth = 2
+                rp.stroke()
+            }
             fillBadge(badge, Self.red, symbol: "mic.fill")
             drawTime(cy, b)
             if quiet {
-                drawText(Self.quietText, Self.msgFont, ink, x: x, cy: cy)
+                drawText(Self.quietText, skin.messageFont, ink, x: x, cy: cy)
             } else {
-                let n = max(0, Int((b.width - x - 10 - Self.timeW - 16) / 5))   // 刚长出来时还很窄
+                let n = max(0, Int((b.width - x - 10 - Self.timeW - skin.trailingInset) / 5))   // 刚长出来时还很窄
                 let vals = hist.suffix(n)
                 for (i, v) in vals.enumerated() {
-                    let h = 3 + CGFloat(v) * 21
+                    let h = 3 + CGFloat(v) * (skin == .minimal ? 11 : 21)
                     let bar = NSRect(x: x + CGFloat(i) * 5, y: cy - h / 2, width: 3, height: h)
                     ink.withAlphaComponent(CGFloat(0.5 + v * 0.5)).setFill()
                     NSBezierPath(roundedRect: bar, xRadius: 1.5, yRadius: 1.5).fill()
                 }
             }
         case .thinking:
-            drawShimmer(ctx, b, now)
+            if skin == .intelligence { drawShimmer(ctx, b, now) }
             fillBadge(badge, ink.withAlphaComponent(0.1), symbol: nil)
             drawSpinner(ctx, badge, now)
-            x += drawText("识别中", Self.msgFont, ink, x: x, cy: cy) + 10
+            x += drawText("识别中", skin.messageFont, ink, x: x, cy: cy) + 10
             for i in 0..<3 {
                 let phase = (now.timeIntervalSinceReferenceDate - Double(i) * 0.15).truncatingRemainder(dividingBy: 1)
                 let up = phase < 0.4 ? sin(phase / 0.4 * .pi) : 0
@@ -332,26 +347,28 @@ private final class CapsuleView: NSView {
             drawTime(cy, b)
         case .done(let n):
             fillBadge(badge, Self.green, symbol: "checkmark")
-            x += drawText("已输入", Self.msgFont, ink, x: x, cy: cy) + 6
-            drawText("\(n) 字", Self.smallFont, .secondaryLabelColor, x: x, cy: cy)
+            x += drawText("已输入", skin.messageFont, ink, x: x, cy: cy) + 6
+            drawText("\(n) 字", skin.smallFont, .secondaryLabelColor, x: x, cy: cy)
         case .miss:
             fillBadge(badge, ink.withAlphaComponent(0.12), symbol: "questionmark", tint: ink)
-            drawText("没听清，再说一次", Self.msgFont, ink, x: x, cy: cy)
+            drawText("没听清，再说一次", skin.messageFont, ink, x: x, cy: cy)
         case .offline:
             fillBadge(badge, Self.orange, symbol: "wifi.slash")
-            x += drawText("连不上识别服务", Self.msgFont, ink, x: x, cy: cy) + 6
-            drawText("正在重试", Self.smallFont, .secondaryLabelColor, x: x, cy: cy)
+            x += drawText("连不上识别服务", skin.messageFont, ink, x: x, cy: cy) + 6
+            drawText("正在重试", skin.smallFont, .secondaryLabelColor, x: x, cy: cy)
         case .note(let sym, let t):
             fillBadge(badge, ink.withAlphaComponent(0.12), symbol: sym, tint: ink)
-            drawText(t, Self.msgFont, ink, x: x, cy: cy)
+            drawText(t, skin.messageFont, ink, x: x, cy: cy)
         }
     }
 
     private func fillBadge(_ r: NSRect, _ color: NSColor, symbol: String?, tint: NSColor = .white) {
-        color.setFill()
-        NSBezierPath(ovalIn: r).fill()
+        if skin != .minimal {
+            color.setFill()
+            NSBezierPath(ovalIn: r).fill()
+        }
         guard let symbol else { return }
-        let cfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .semibold).applying(.init(paletteColors: [tint]))
+        let cfg = NSImage.SymbolConfiguration(pointSize: skin == .minimal ? 11 : 13, weight: .semibold).applying(.init(paletteColors: [skin == .minimal ? .labelColor : tint]))
         guard let img = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(cfg) else { return }
         let s = img.size
         img.draw(in: NSRect(x: r.midX - s.width / 2, y: r.midY - s.height / 2, width: s.width, height: s.height),
@@ -369,9 +386,9 @@ private final class CapsuleView: NSView {
     private func drawTime(_ cy: CGFloat, _ b: NSRect) {
         let t = Int(elapsed)
         let s = "\(t / 60):" + String(format: "%02d", t % 60)
-        let a: [NSAttributedString.Key: Any] = [.font: Self.timeFont, .foregroundColor: NSColor.labelColor.withAlphaComponent(0.7)]
+        let a: [NSAttributedString.Key: Any] = [.font: skin.timeFont, .foregroundColor: NSColor.labelColor.withAlphaComponent(0.7)]
         let size = (s as NSString).size(withAttributes: a)
-        (s as NSString).draw(at: NSPoint(x: b.width - 16 - size.width, y: cy - size.height / 2), withAttributes: a)
+        (s as NSString).draw(at: NSPoint(x: b.width - skin.trailingInset - size.width, y: cy - size.height / 2), withAttributes: a)
     }
 
     private func drawSpinner(_ ctx: CGContext, _ r: NSRect, _ now: Date) {
@@ -393,48 +410,73 @@ private final class CapsuleView: NSView {
         let colors = [CGColor(gray: 1, alpha: 0), CGColor(gray: 1, alpha: 0.12), CGColor(gray: 1, alpha: 0)] as CFArray
         guard let g = CGGradient(colorsSpace: nil, colors: colors, locations: [0, 0.5, 1]) else { return }
         ctx.saveGState()
-        ctx.addPath(CGPath(roundedRect: b, cornerWidth: Self.radius, cornerHeight: Self.radius, transform: nil))
+        ctx.addPath(CGPath(roundedRect: b, cornerWidth: skin.radius, cornerHeight: skin.radius, transform: nil))
         ctx.clip()
         ctx.drawLinearGradient(g, start: CGPoint(x: cx - w * 0.2, y: 0), end: CGPoint(x: cx + w * 0.2, y: 0), options: [])
         ctx.restoreGState()
     }
 
-    private func attributed(_ text: String, now: Date) -> NSAttributedString {
+    private func attributed(_ text: String) -> NSAttributedString {
         let ps = NSMutableParagraphStyle()
-        ps.minimumLineHeight = Self.lineH
-        ps.maximumLineHeight = Self.lineH
+        ps.minimumLineHeight = skin.lineHeight
+        ps.maximumLineHeight = skin.lineHeight
         ps.lineBreakMode = .byWordWrapping
-        let base: CGFloat = mode == .thinking ? 0.5 : 0.95
         let s = NSMutableAttributedString(string: text, attributes: [
-            .font: Self.textFont, .paragraphStyle: ps, .foregroundColor: NSColor.labelColor.withAlphaComponent(base),
+            .font: skin.textFont, .paragraphStyle: ps, .foregroundColor: NSColor.labelColor,
         ])
-        let t = min(1, now.timeIntervalSince(newAt) / 0.5)
-        let n = (text as NSString).length
-        if t < 1, newFrom < n {
-            s.addAttribute(.foregroundColor, value: NSColor.labelColor.withAlphaComponent(base * (0.25 + 0.75 * t)),
-                           range: NSRange(location: newFrom, length: n - newFrom))
+        // 完整文字始终参加排版，尚未显现的字透明，动画期间不会一字一字挤动前文。
+        let time = ProcessInfo.processInfo.systemUptime
+        if mode == .listening, !reduceMotion {
+            for glyph in livePreview.glyphs {
+                s.addAttribute(.foregroundColor, value: NSColor.labelColor.withAlphaComponent(livePreview.opacity(for: glyph, at: time)),
+                               range: glyph.range)
+            }
         }
         return s
     }
 
+    /// 彩色光只贴着边缘流动，正文区域保持清楚；音量只改变亮度，不抖动文字。
+    private func drawListeningGlow(_ ctx: CGContext, _ b: NSRect) {
+        let phase = reduceMotion ? 0 : CGFloat(frame_) / 180
+        let palette = [NSColor.systemBlue, .systemCyan, .systemPurple, .systemPink, .systemOrange, .systemBlue]
+        let colors = palette.map { $0.withAlphaComponent(0.7).cgColor } as CFArray
+        guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: nil) else { return }
+        for (width, alpha) in [(CGFloat(9), CGFloat(0.06)), (4, 0.13), (1.5, 0.65)] {
+            ctx.saveGState()
+            let rect = b.insetBy(dx: width / 2, dy: width / 2)
+            let radius = max(0, skin.radius - width / 2)
+            let path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            ctx.addPath(path.copy(strokingWithWidth: width, lineCap: .round, lineJoin: .round, miterLimit: 1))
+            ctx.clip()
+            ctx.setAlpha(alpha * (0.7 + CGFloat(level) * 0.3))
+            let shift = sin(phase * .pi * 2) * b.width * 0.25
+            ctx.drawLinearGradient(gradient, start: CGPoint(x: -b.width * 0.2 + shift, y: 0),
+                                   end: CGPoint(x: b.width * 1.2 + shift, y: b.height), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            ctx.restoreGState()
+        }
+    }
+
     /// 文字贴着底下那一行往上排，超过三行只露最后三行，上沿渐隐
     private func drawPreview(_ ctx: CGContext, _ b: NSRect) {
-        let area = NSRect(x: 18, y: 14, width: b.width - 36, height: b.height - Self.rowH - 16)
+        let area = NSRect(x: skin.inset, y: skin.topInset, width: b.width - skin.inset * 2, height: b.height - skin.rowHeight - skin.topInset - 2)
         guard area.height > 2, area.width > 40 else { return }
-        let str = attributed(preview, now: Date())
-        let full = str.boundingRect(with: NSSize(width: area.width, height: 10_000), options: [.usesLineFragmentOrigin])
-        let h = max(Self.lineH, (full.height / Self.lineH).rounded() * Self.lineH)
+        let str = attributed(preview)
+        // 窗口展开期间也用最终文字宽度排版，避免每一帧都重新换行。
+        let layoutWidth = skin.expandedWidth - skin.inset * 2
+        let full = str.boundingRect(with: NSSize(width: layoutWidth, height: 10_000), options: [.usesLineFragmentOrigin])
+        let fullHeight = max(skin.lineHeight, (full.height / skin.lineHeight).rounded() * skin.lineHeight)
+        let h = reduceMotion ? fullHeight : max(skin.lineHeight, previewHeight)
         let overflow = h > area.height + 1
         ctx.saveGState()
         ctx.clip(to: area)
         if overflow { ctx.beginTransparencyLayer(auxiliaryInfo: nil) }
-        str.draw(with: NSRect(x: area.minX, y: area.maxY - h, width: area.width, height: h), options: [.usesLineFragmentOrigin])
+        str.draw(with: NSRect(x: area.minX, y: area.maxY - h, width: layoutWidth, height: max(h, fullHeight)), options: [.usesLineFragmentOrigin])
         if overflow {
-            // 上沿 26 点渐隐
+            // 上沿一行渐隐
             let colors = [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 1)] as CFArray
             if let g = CGGradient(colorsSpace: nil, colors: colors, locations: [0, 1]) {
                 ctx.setBlendMode(.destinationIn)
-                ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: area.minY), end: CGPoint(x: 0, y: area.minY + 26),
+                ctx.drawLinearGradient(g, start: CGPoint(x: 0, y: area.minY), end: CGPoint(x: 0, y: area.minY + skin.lineHeight),
                                        options: [.drawsAfterEndLocation])
             }
             ctx.endTransparencyLayer()

@@ -21,6 +21,7 @@ struct Settings {
     var stripShortTrailingPeriod = true
     var commaBetween = true   // 接着上一句说时，上一句末尾没标点就在这一句开头补逗号
     var hudPosition = "bottom"       // bottom 屏幕底部 / caret 跟着光标
+    var capsuleSkin = CapsuleSkin.intelligence
     var pauseMedia = false           // 说话时压低系统音量；保留历史键名，兼容已打开的设置
     var sounds = false               // 开始和结束时的提示音
     var streamPreview = true         // 说话时实时显示文字
@@ -86,6 +87,7 @@ struct Settings {
         if let v = j["stripShortTrailingPeriod"] as? Bool { s.stripShortTrailingPeriod = v }
         if let v = j["commaBetween"] as? Bool { s.commaBetween = v }
         if let v = j["hudPosition"] as? String { s.hudPosition = v }
+        s.capsuleSkin = CapsuleSkin(storedValue: j["capsuleSkin"] as? String)
         if let v = j["pauseMedia"] as? Bool { s.pauseMedia = v }
         if let v = j["sounds"] as? Bool { s.sounds = v }
         if let v = j["streamPreview"] as? Bool { s.streamPreview = v }
@@ -108,6 +110,7 @@ struct Settings {
             "localPort": localPort, "hotkeyCode": Int(hotkeyCode), "holdThreshold": holdThreshold,
             "tailSeconds": tailSeconds, "language": language, "restoreClipboard": restoreClipboard,
             "stripShortTrailingPeriod": stripShortTrailingPeriod, "commaBetween": commaBetween, "hudPosition": hudPosition,
+            "capsuleSkin": capsuleSkin.rawValue,
             "pauseMedia": pauseMedia, "sounds": sounds, "streamPreview": streamPreview, "onboarded": onboarded,
             "polishClean": polishClean.rawValue, "polishFormat": polishFormat.rawValue,
             "polishPort": polishPort, "polishLocalPort": polishLocalPort,
