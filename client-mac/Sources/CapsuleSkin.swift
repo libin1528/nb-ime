@@ -71,7 +71,7 @@ final class CapsuleSurface: NSView {
         content.removeFromSuperview()
         glass.isHidden = skin == .minimal
         // 通透皮肤只减薄玻璃材质，文字单独叠在上面，保持完整不透明度。
-        glass.alphaValue = skin == .glass ? 0.4 : 1
+        glass.alphaValue = skin == .glass ? 0.65 : 1
         if skin == .intelligence {
             glass.contentView = content
         } else {
