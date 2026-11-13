@@ -1,5 +1,5 @@
 // 主控：按住快捷键说话，松开后把录音送到 ITX 上的 CapsWriter 服务端识别，结果粘贴到当前输入框。
-// 开了流式预览时，同一段录音同时走两条连接：预览连接每 2 秒出一次到目前为止的文字，只用来显示；
+// 开了流式预览时，Apple 本地识别优先显示增量文字；远端两秒分段预览作为回退。
 // 完整连接松开后出最终结果，粘贴用它。服务端的音频缓存按连接分，两个任务不能挤在一条连接上。
 
 import AVFoundation
@@ -11,6 +11,10 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
 
     private var tunnel: Tunnel?
     private var client: ASRClient!            // 完整识别
+    private let localPreview = LocalPreview()
+    private var localPreviewID: String?
+    private var localPreviewStarted = Date()
+    private var localPreviewShown = ""
     private var preview: ASRClient!           // 流式预览
     private var connKey = ""
     private let netWatch = NetWatch()
@@ -52,7 +56,6 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     static let previewSeg = 2.0, previewOverlap = 0.5
     private var previewId: String?
     private var previewShown = ""
-    private var previewEchoes: [String] = []      // 抄出来的热词段，之后的预览里也去掉
     private var previewStarted = Date()
 
     private let args = CommandLine.arguments
@@ -80,6 +83,17 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             runEditTest(typed)
             return
         }
+        localPreview.onText = { [weak self] text in
+            guard let self, self.localPreviewID == self.taskId, self.phase == .recording, Settings.current.streamPreview else { return }
+            let hot = Settings.hotwordList()
+            let clean = PreviewFilter.apply(text, words: hot)
+            guard !clean.isEmpty, clean != self.localPreviewShown else { return }
+            self.localPreviewShown = clean
+            let elapsed = Date().timeIntervalSince(self.localPreviewStarted)
+            if self.testFile != nil { print(String(format: "LOCAL PREVIEW %.3fs %@", elapsed, clean)) }
+            self.capsule.setPreview(Hotfix.apply(Replace.apply(clean, Settings.replaceRules()).text, hot))
+        }
+        if demo == nil, s.streamPreview { localPreview.prepare(language: s.language) }
         connect()
         netWatch.onChange = { [weak self] in self?.reconnectAfterNetworkChange() }
         if testFile == nil, demo == nil { netWatch.start() }
@@ -89,11 +103,13 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         setupMenuBar()
         recorder.onSamples = { [weak self] in self?.handleSamples($0) }
+        recorder.onFailure = { [weak self] error in
+            guard let self else { return }
+            self.cancelRecording("麦克风恢复失败")
+            self.capsule.show(.note("mic.slash", error.localizedDescription), for: 3)
+        }
         InputDevices.watch()
         try? recorder.prepare()
-        NotificationCenter.default.addObserver(forName: .inputDevicesChanged, object: nil, queue: .main) { [weak self] _ in
-            try? self?.recorder.prepare()
-        }
         hotkey.onDown = { [weak self] in self?.hotkeyDown() }
         hotkey.onUp = { [weak self] in self?.hotkeyUp() }
         hotkey.onOtherKey = { [weak self] in
@@ -118,6 +134,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     func applicationWillTerminate(_ n: Notification) {
         mediaDuck.shutdown()
         recorder.stop()
+        localPreview.stop()
         tunnel?.stop()
     }
 
@@ -197,6 +214,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             hotkey.codes = s.hotkeyCodes
             Log.w("快捷键改成 \(Hotkey.describe(s.hotkeyCodes))")
         }
+        if Settings.current.streamPreview { localPreview.prepare(language: Settings.current.language) }
+        else { localPreviewID = nil; localPreview.stop() }
         try? recorder.prepare()   // 换了麦克风的话先把引擎建好
         refreshStatus()
     }
@@ -298,6 +317,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             phase = .idle
             Log.w("按得太短（不到 \(Settings.current.holdThreshold) 秒），不录")
         case .recording:
+            recorder.finish()
             phase = .finishing
             mediaDuck.end(playSound: Settings.current.sounds ? { Sounds.stop() } : nil)
             let id = taskId
@@ -363,6 +383,9 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         Log.w("取消录音：\(why)")
         mediaDuck.end()
         recorder.stop()
+        localPreviewID = nil
+        localPreview.stop()
+        if Settings.current.streamPreview { localPreview.prepare(language: Settings.current.language) }
         if phase == .recording || phase == .finishing {
             discard.insert(taskId)
             send(data: "", final: true)
@@ -376,6 +399,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
 
     private func handleSamples(_ samples: [Float]) {
         guard phase != .idle else { return }
+        localPreview.append(samples)
         let v = Recorder.level(samples)
         peakLevel = max(peakLevel, v)
         capsule.setLevel(v)
@@ -416,8 +440,12 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         closePreview()
         previewId = nil
         previewShown = ""
-        previewEchoes = []
-        guard Settings.current.streamPreview, preview.connected else { return }
+        guard Settings.current.streamPreview else { return }
+        localPreviewID = taskId
+        localPreviewStarted = Date()
+        localPreviewShown = ""
+        if localPreview.start() { localPreview.append(pending) }
+        guard preview.connected else { return }
         previewId = UUID().uuidString
         previewStarted = Date()
     }
@@ -425,6 +453,9 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private var previewToClose: String?
 
     private func holdPreview() {
+        localPreviewID = nil
+        localPreview.stop()
+        if Settings.current.streamPreview { localPreview.prepare(language: Settings.current.language) }
         guard let pid = previewId else { return }
         previewId = nil
         previewToClose = pid
@@ -441,16 +472,11 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     }
 
     private func handlePreview(_ id: String, _ final: Bool, _ raw: String) {
-        guard id == previewId, !final else { return }
-        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        for e in previewEchoes { text = text.replacingOccurrences(of: e, with: "") }
-        if let cut = Settings.strippedEcho(text, Settings.hotwordList()) { text = cut.text }
-        // 新冒出来的这一段要是整段都是热词，就是短片段遇上静音抄了热词表，这一段不显示
-        let fresh = String(text.dropFirst(text.commonPrefix(with: previewShown).count))
-        if Settings.echoedHotwords(fresh, Settings.hotwordList()) != nil {
-            Log.w("预览这一段像是抄了热词表：\(fresh)，不显示")
-            previewEchoes.append(fresh)
-            return
+        guard id == previewId, !final, !localPreview.hasRecentResult else { return }
+        let hotwords = Settings.hotwordList()
+        let text = PreviewFilter.apply(raw.trimmingCharacters(in: .whitespacesAndNewlines), words: hotwords)
+        if text != raw.trimmingCharacters(in: .whitespacesAndNewlines) {
+            Log.w("预览去掉热词表回声：\(raw) → \(text)")
         }
         guard !text.isEmpty, text != previewShown else { return }
         previewShown = text
@@ -827,6 +853,14 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         case "quiet": capsule.showListening()
         case "preview": capsule.showListening(); wobble(); capsule.setPreview(text)
         case "long": capsule.showListening(); wobble(); capsule.setPreview(long)
+        case "stream":
+            capsule.showListening(); wobble()
+            let parts = ["说话的时候", "说话的时候，文字会跟着出现。", "说话的时候，文字会跟着出现。前面的内容保持稳定，",
+                         "说话的时候，文字会跟着出现。前面的内容保持稳定，只有新增和修正的部分轻轻浮现。",
+                         "说话的时候，文字会跟着出现。前面的内容保持稳定，只有新增和修正的部分轻轻浮现。说得更长时，文字平滑向上滚动。"]
+            for (i, part) in parts.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8 + Double(i) * 2) { self.capsule.setPreview(part) }
+            }
         case "think": capsule.showListening(); capsule.setPreview(text + "松开以后再一次性休整"); capsule.showThinking()
         case "done": capsule.show(.done(55), for: 600)
         case "miss": capsule.show(.miss, for: 600)

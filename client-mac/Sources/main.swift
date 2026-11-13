@@ -12,6 +12,11 @@ if CommandLine.arguments.contains("--enable-login-item") {
 }
 
 let app = NSApplication.shared
+if CommandLine.arguments.contains("--mic-test") {
+    MicrophoneProbe.run()
+    app.run()
+    exit(0)
+}
 let controller = AppController()
 app.delegate = controller
 app.setActivationPolicy(CommandLine.arguments.contains("--test-file") ? .prohibited : .accessory)
