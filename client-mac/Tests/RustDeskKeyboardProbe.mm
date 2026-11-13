@@ -3,7 +3,7 @@
 #include <dlfcn.h>
 #import "flutter/shell/platform/darwin/macos/framework/Source/FlutterEmbedderKeyResponder.h"
 
-extern "C" int32_t nbime_rustdesk_keyboard_probe(const void* pointer) {
+static int32_t probe(const void* pointer, bool control) {
   @autoreleasepool {
     static void* library = dlopen(
         "/Applications/RustDesk.app/Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS",
@@ -18,7 +18,7 @@ extern "C" int32_t nbime_rustdesk_keyboard_probe(const void* pointer) {
     FlutterSendEmbedderKeyEvent receive = ^(const FlutterKeyEvent& event,
                                            FlutterKeyEventCallback callback, void* data) {
       // USB HID Usage 页：左 Command = 0xe3，V = 0x19。
-      if (event.physical == 0x700e3) {
+      if (event.physical == (control ? 0x700e0 : 0x700e3)) {
         command = event.type == kFlutterKeyEventTypeDown;
         result |= command ? 2 : 4;
       }
@@ -36,3 +36,6 @@ extern "C" int32_t nbime_rustdesk_keyboard_probe(const void* pointer) {
     return result;
   }
 }
+
+extern "C" int32_t nbime_rustdesk_keyboard_probe(const void* pointer) { return probe(pointer, false); }
+extern "C" int32_t nbime_rustdesk_control_probe(const void* pointer) { return probe(pointer, true); }

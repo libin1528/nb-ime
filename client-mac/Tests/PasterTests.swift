@@ -46,6 +46,30 @@ final class PasteHarness {
     }
 
     static func main() {
+        for platform in ["Windows", "Linux", "Mac OS"] {
+            for swapped in [false, true] {
+                let session = RustDeskPaste.parse(peer: "test", config: "allow_swap_key = \(swapped)\n[info]\nplatform = '\(platform)'")!
+                check(session.useControl == ((platform != "Mac OS") != swapped), "远端平台和置换组合选对修饰键")
+            }
+        }
+        check(RustDeskPaste.matches(title: "host:123@desktop - Remote Desktop - RustDesk", peer: "host:123"), "准确匹配会话")
+        check(!RustDeskPaste.matches(title: "host:1234@desktop - Remote Desktop - RustDesk", peer: "host:123"), "不误匹配另一端口")
+        check(RustDeskPaste.parse(peer: "test", config: "[info]\nplatform = 'Windows'") == nil, "设置不完整时不猜映射")
+        do {
+            let h = PasteHarness()
+            h.target?.rustDeskSession = RustDeskPasteSession(peer: "one", platform: "Windows", swapped: false)
+            h.delivery.paste("Windows 输入", restore: false); h.clock.advance(0.7)
+            check(h.events.map { $0.getIntegerValueField(.keyboardEventKeycode) } == [59, 9, 9, 59], "Windows 未置换走 Control+V")
+            check(h.events.prefix(3).allSatisfy { $0.flags.contains(.maskControl) && $0.flags.rawValue & 1 != 0 && !$0.flags.contains(.maskCommand) }, "不发送 Windows 键，并携带左 Control 设备位")
+        }
+        do {
+            let h = PasteHarness()
+            h.target?.rustDeskSession = RustDeskPasteSession(peer: "one", platform: "Windows", swapped: false)
+            h.delivery.paste("不要串到另一台", restore: false)
+            h.target?.rustDeskSession = RustDeskPasteSession(peer: "two", platform: "Windows", swapped: false)
+            h.clock.advance(10)
+            check(h.events.isEmpty, "同一 RustDesk 进程换会话也取消粘贴")
+        }
         let events = PasteDelivery.shortcut()
         check(events.map { $0.getIntegerValueField(.keyboardEventKeycode) } == [55, 9, 9, 55], "独立 Command 按下和松开包住 V")
         check(events.count == 4 && events[1].type == .keyDown && events[2].type == .keyUp, "V 按下后松开")

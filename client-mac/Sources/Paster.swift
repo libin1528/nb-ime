@@ -15,10 +15,14 @@ enum Paster {
 struct PasteTarget: Equatable {
     let pid: pid_t
     let bundleID: String?
+    var rustDeskSession: RustDeskPasteSession? = nil
     var isRustDesk: Bool { bundleID == "com.carriez.rustdesk" }
 
     static func frontmost() -> PasteTarget? {
-        NSWorkspace.shared.frontmostApplication.map { PasteTarget(pid: $0.processIdentifier, bundleID: $0.bundleIdentifier) }
+        NSWorkspace.shared.frontmostApplication.map {
+            PasteTarget(pid: $0.processIdentifier, bundleID: $0.bundleIdentifier,
+                        rustDeskSession: $0.bundleIdentifier == "com.carriez.rustdesk" ? RustDeskPaste.current(pid: $0.processIdentifier) : nil)
+        }
     }
 }
 
@@ -53,14 +57,16 @@ final class PasteDelivery {
         next()
     }
 
-    /// 完整事件还须带左 Command 的设备位；Flutter 用它同步左右修饰键状态。
+    /// 完整事件还须带左侧修饰键的设备位；Flutter 用它同步左右修饰键状态。
     /// 见 Flutter macOS KeyCodeMap_Internal.h 的 kModifierFlagMetaLeft。
-    static func shortcut() -> [CGEvent] {
+    static func shortcut(control: Bool = false) -> [CGEvent] {
         let source = CGEventSource(stateID: .privateState)
-        let command = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x8)
+        let command = control ? CGEventFlags(rawValue: CGEventFlags.maskControl.rawValue | 0x1)
+                              : CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | 0x8)
+        let modifier: CGKeyCode = control ? 59 : 55
         let keys: [(CGKeyCode, Bool, CGEventFlags)] = [
-            (55, true, command), (9, true, command),
-            (9, false, command), (55, false, []),
+            (modifier, true, command), (9, true, command),
+            (9, false, command), (modifier, false, []),
         ]
         let events = keys.compactMap { code, down, flags -> CGEvent? in
             guard let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else { return nil }
@@ -79,7 +85,8 @@ final class PasteDelivery {
             finish()
             return
         }
-        let events = Self.shortcut()
+        let control = request.target?.rustDeskSession?.useControl == true
+        let events = Self.shortcut(control: control)
         guard !events.isEmpty else { log("无法创建粘贴按键，文字可从历史复制"); finish(); return }
         let saved = (pb.pasteboardItems ?? []).map { item -> NSPasteboardItem in
             let copy = NSPasteboardItem()
@@ -116,7 +123,7 @@ final class PasteDelivery {
             }
         }
         if remote {
-            log("RustDesk 粘贴：等待 0.7 秒同步剪贴板，再发送带左侧设备标志的 Command+V")
+            log("RustDesk 粘贴：等待 0.7 秒同步剪贴板，再发送带左侧设备标志的 \(control ? "Control" : "Command")+V")
             later(0.7, send)
         } else {
             send()

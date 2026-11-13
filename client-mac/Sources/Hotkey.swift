@@ -1,5 +1,6 @@
 // 全局热键：用 CGEventTap（.defaultTap）听键盘。NSEvent 的全局监听在有的机器上收不到修饰键。
-// 修饰键当热键时原样放行，普通键当热键时吞掉，免得打出字来。
+// 修饰键当热键时原样放行；RustDesk 中单按 Option 留在本机，组合操作完整放行。
+// 普通键当热键时吞掉，免得打出字来。
 // 可以设两个快捷键，效果一样；两个同时按着只算一次，都松开了才算松开。
 // 鼠标侧键（左右键以外的键）也能当快捷键，存成 1000 + 按键号，和键盘的 keyCode 不会撞；按下时同样吞掉，免得浏览器跟着后退。
 
@@ -20,6 +21,7 @@ final class Hotkey {
     private var tap: CFMachPort?
     private var held = Set<UInt16>()          // 正按着的快捷键
     private var capture: ((UInt16?) -> Void)?
+    private let remoteOption = RemoteOption()
 
     init(codes: [UInt16]) { self.codes = codes }
 
@@ -27,11 +29,16 @@ final class Hotkey {
         guard !installed else { return true }
         let mask = (1 << CGEventType.flagsChanged.rawValue) | (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
             | (1 << CGEventType.otherMouseDown.rawValue) | (1 << CGEventType.otherMouseUp.rawValue)
+            | (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.leftMouseUp.rawValue)
+            | (1 << CGEventType.rightMouseDown.rawValue) | (1 << CGEventType.rightMouseUp.rawValue)
+            | (1 << CGEventType.mouseMoved.rawValue) | (1 << CGEventType.scrollWheel.rawValue)
+            | (1 << CGEventType.leftMouseDragged.rawValue) | (1 << CGEventType.rightMouseDragged.rawValue)
+            | (1 << CGEventType.otherMouseDragged.rawValue)
         let me = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: CGEventMask(mask),
-            callback: { _, type, event, info in
+            callback: { proxy, type, event, info in
                 let me = Unmanaged<Hotkey>.fromOpaque(info!).takeUnretainedValue()
                 if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                     Log.w("事件钩子被系统停用（\(type == .tapDisabledByTimeout ? "超时" : "系统输入保护")），重新打开")
@@ -40,7 +47,9 @@ final class Hotkey {
                     me.resync()
                     return Unmanaged.passUnretained(event)
                 }
-                return me.handle(type, event) ? nil : Unmanaged.passUnretained(event)
+                return me.process(event, remote: {
+                    NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.carriez.rustdesk"
+                }, replay: { $0.tapPostEvent(proxy) }) ? nil : Unmanaged.passUnretained(event)
             }, userInfo: me)
         else { return false }
         self.tap = tap
@@ -101,8 +110,30 @@ final class Hotkey {
     /// 「右 Option 或 F5」
     static func describe(_ codes: [UInt16]) -> String { codes.map(keyName).joined(separator: " 或 ") }
 
+    /// 与真实事件钩子共用入口；replay 从当前钩子之后继续传递，不再触发录音热键。
+    func process(_ event: CGEvent, remote: () -> Bool, replay: (CGEvent) -> Void) -> Bool {
+        let isOption = event.type == .flagsChanged && [58, 61].contains(Int(event.getIntegerValueField(.keyboardEventKeycode)))
+        let routed = remoteOption.route(event, enabled: !paused && capture == nil, codes: codes,
+                                        remote: isOption && remote())
+        if routed.beganCombination { onOtherKey?() }
+        if let original = routed.replay { replay(original) }
+        if routed.swallow || routed.combination, event.type == .flagsChanged {
+            let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+            if held.contains(code), let mask = Self.modifierMasks[code], event.flags.rawValue & mask == 0 {
+                press(code, false)
+            }
+        }
+        if routed.combination {
+            // 包括 Option+另一个录音热键：它属于组合键，不吞键，也不另开录音。
+            return false
+        }
+        let handled = handle(event.type, event)
+        return routed.swallow || handled
+    }
+
     /// 返回 true 表示吞掉这个事件
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Bool {
+        guard [.flagsChanged, .keyDown, .keyUp, .otherMouseDown, .otherMouseUp].contains(type) else { return false }
         if type == .otherMouseDown || type == .otherMouseUp {
             let code = Self.mouseBase + UInt16(clamping: event.getIntegerValueField(.mouseEventButtonNumber))
             if let capture {
@@ -162,6 +193,7 @@ final class Hotkey {
     func resync() {
         let src = CGEventSourceStateID.combinedSessionState
         let flags = CGEventSource.flagsState(src).rawValue
+        remoteOption.resync(flags: flags, keyDown: { CGEventSource.keyState(src, key: $0) })
         for c in held {
             let down: Bool
             if Self.isMouse(c) {

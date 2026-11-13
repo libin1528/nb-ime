@@ -4,6 +4,9 @@ import Cocoa
 @_silgen_name("nbime_rustdesk_keyboard_probe")
 func rustDeskKeyboardProbe(_ events: UnsafeRawPointer) -> Int32
 
+@_silgen_name("nbime_rustdesk_control_probe")
+func rustDeskControlProbe(_ events: UnsafeRawPointer) -> Int32
+
 @main enum RustDeskKeyboardTests {
     static func convert(_ events: [CGEvent]) -> Int32 {
         let native = events.compactMap { NSEvent(cgEvent: $0) } as NSArray
@@ -11,6 +14,8 @@ func rustDeskKeyboardProbe(_ events: UnsafeRawPointer) -> Int32
     }
 
     static func main() {
+        let controlEvents = PasteDelivery.shortcut(control: true).compactMap { NSEvent(cgEvent: $0) } as NSArray
+        precondition(rustDeskControlProbe(Unmanaged.passUnretained(controlEvents).toOpaque()) == 31, "真实 Flutter 转换器必须完整转发 Control+V")
         let events = PasteDelivery.shortcut()
         let result = convert(events)
         guard result == 31 else {
@@ -38,6 +43,6 @@ func rustDeskKeyboardProbe(_ events: UnsafeRawPointer) -> Int32
             print("FAIL: 仅 V 带通用 Command 标记不应通过")
             exit(1)
         }
-        print("RustDesk Flutter keyboard: 4 passed, 0 failed（真实转换器识别 Command+V，三种错误实现均能复现丢失修饰键）")
+        print("RustDesk Flutter keyboard: 5 passed, 0 failed（真实转换器识别 Command+V，三种错误实现均能复现丢失修饰键）")
     }
 }
