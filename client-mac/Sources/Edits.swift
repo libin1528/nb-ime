@@ -1,6 +1,7 @@
 // 改字记录：语音输入粘贴以后，盯着那个输入框看你把这段字改成了什么，只记在本机，给以后的主动优化攒数据（评测集、热词建议、调润色）。
 // 做法：粘贴后用辅助功能接口读输入框的全文，记下这段字前后各 16 个字当锚点；之后每秒读一次，两个锚点中间的就是它现在的样子。
 // 焦点离开这个输入框、又按下快捷键、锚点找不到了（比如聊天框发出去被清空）、或者过了 2 分钟，就停，按最后一次读到的记。
+// 发送后辅助功能有时把占位提示当作值返回；结合字数、选区和占位属性结束观察，保留发送前正文。
 // 密码框不读；读不到全文的应用（不少 Electron、网页编辑器、终端）跳过，每个应用在日志里提一次。
 // 记录在数据文件夹的 edits/edits.jsonl，一行一条；改过的那几条把录音另存一份到 edits/，不跟着「最近 20 段」被删。
 
@@ -70,32 +71,12 @@ final class EditWatcher {
         guard var w = watch else { return }
         // 焦点换了地方、超时、或者这段字找不到了，就按最后一次的记
         guard let el = Self.focused(), CFEqual(el, w.element), Date().timeIntervalSince(w.started) < Self.maxSeconds,
-              let now = Self.value(el).flatMap({ Self.segment($0, head: w.head, tail: w.tail) }) else {
+              let now = Self.field(el)?.segment(head: w.head, tail: w.tail, app: w.info.app, latest: w.latest) else {
             finish()
             return
         }
         w.latest = now
         watch = w
-    }
-
-    /// 两个锚点之间的字；锚点找不到、或者整个输入框空了（发出去了）返回 nil。
-    /// Claude 之类 Electron 的输入框清空后读到的是 "\n"，只剩空白也算空了
-    private static func segment(_ value: String, head: String, tail: String) -> String? {
-        let v = value as NSString
-        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        var start = 0
-        if !head.isEmpty {
-            let r = v.range(of: head)
-            guard r.location != NSNotFound else { return nil }
-            start = NSMaxRange(r)
-        }
-        var end = v.length
-        if !tail.isEmpty {
-            let r = v.range(of: tail, options: [], range: NSRange(location: start, length: v.length - start))
-            guard r.location != NSNotFound else { return nil }
-            end = r.location
-        }
-        return v.substring(with: NSRange(location: start, length: end - start))
     }
 
     /// 停下来，记一条
@@ -162,14 +143,28 @@ final class EditWatcher {
         return v as? String
     }
 
+    private static func field(_ el: AXUIElement) -> EditField? {
+        guard let value = value(el) else { return nil }
+        var placeholder: CFTypeRef?, count: CFTypeRef?
+        AXUIElementCopyAttributeValue(el, kAXPlaceholderValueAttribute as CFString, &placeholder)
+        AXUIElementCopyAttributeValue(el, kAXNumberOfCharactersAttribute as CFString, &count)
+        return EditField(value: value, placeholder: placeholder as? String,
+                         characterCount: (count as? NSNumber)?.intValue, selection: selection(el))
+    }
+
     /// 光标位置（UTF-16 下标）
     private static func caret(_ el: AXUIElement) -> Int? {
+        selection(el)?.location
+    }
+
+    private static func selection(_ el: AXUIElement) -> NSRange? {
         var r: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &r) == .success,
               let r, CFGetTypeID(r) == AXValueGetTypeID() else { return nil }
         var range = CFRange()
         guard AXValueGetValue(r as! AXValue, .cfRange, &range) else { return nil }
-        return range.location
+        guard range.location >= 0, range.length >= 0 else { return nil }
+        return NSRange(location: range.location, length: range.length)
     }
 }
 
