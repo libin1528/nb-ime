@@ -1,4 +1,4 @@
-// swiftc -swift-version 5 Sources/LivePreview.swift Sources/PreviewFilter.swift Tests/PreviewTests.swift -o /tmp/nbime-preview-tests
+// swiftc -swift-version 5 Sources/LivePreview.swift Sources/HotwordEcho.swift Sources/PreviewFilter.swift Tests/PreviewTests.swift -o /tmp/nbime-preview-tests
 import Foundation
 
 @main enum PreviewTests {

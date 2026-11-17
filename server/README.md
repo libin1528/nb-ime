@@ -154,5 +154,5 @@ Get-Content -Tail 20 -Encoding UTF8 %USERPROFILE%\nb-transcribe\server.log
 
 - 客户端 → 服务端：`{task_id, source:"mic", data, is_final, time_start, seg_duration, seg_overlap, context, language}`，`data` 是 16kHz 单声道 float32 的 base64；最后一帧 `data` 为空、`is_final` 为 true。
 - 服务端 → 客户端：`{task_id, is_final, text, ...}`。
-- `context` 是热词提示。人声太弱时 Qwen3-ASR 会把它原样抄出来，客户端有检测与倒序复核（见 `tools/hotword_echo_test.py`）；念一串名字、头一个是热词时它会顺着热词表往下背，客户端发现连着一串热词就不带热词重认（见 `docs/2026-11-02-hotword-run.md`）。
+- `context` 是热词提示。人声太弱时 Qwen3-ASR 会把它原样抄出来，客户端统一检测整句和正文中的热词串，不带热词重认一次；重认空白或仍可疑时停止输入，不恢复第一次结果（见 `client-mac/Sources/HotwordEcho.swift`）。
 - 多个客户端可以同时连，服务端单模型排队，按连接轮转。

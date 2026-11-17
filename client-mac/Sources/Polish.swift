@@ -1,8 +1,8 @@
 // 识别后润色：完整结果出来、粘贴之前，交给 ITX 上的小模型整理一遍（llama-server + Qwen3.5-4B，走同一条 ssh 隧道）。
-// 两件事各管各的：去口误（只删字：重复、改口、语气词）和整理格式（只动标点、分段、列表，不删字），各有 关 / 中 / 强。
-// 去口误开着时，一字不差的重说（「新的设新的设计」）先用代码删掉，不靠模型。
+// 模型的两件事各管各的：去口误（只删字：重复、改口、语气词）和整理格式（只动标点、分段、列表，不删字），各有 关 / 中 / 强。
+// 去口误开着时，明确释字的同音纠错、一字不差的重说先用代码处理，不靠模型。
 // 小模型偶尔会补字、改字、删掉有用的话，所以结果要过一遍检查：只删不加（长句许补一两个字）、热词都在、没单删人称、没删「更正」、除了重复和语气词没删太多；
-// 不过关、超时、连不上，都直接用原文。提示词和例子是拿 PM 的真实口语一档档试出来的，改之前先跑 --polish-test。
+// 不过关、超时、连不上，都用本机预处理后的文字。提示词和例子是拿 PM 的真实口语一档档试出来的，改之前先跑 --polish-test。
 
 import Foundation
 
@@ -32,13 +32,29 @@ enum Polish {
     /// 等多久：一般 3 秒，长段落按字数多给一点（270 字实测 2.3 秒）
     static func timeout(_ text: String) -> Double { 3 + max(0, Double(text.count - 150)) / 100 }
 
-    /// 整理一段话，主线程回调：结果和一句给日志看的说明。没开、太短、超时、出错、没过检查，都回原文。
+    struct Prepared {
+        let text: String
+        let note: String
+        let preserved: [String]
+    }
+
+    /// 本机能确定的修正先做；超时和模型检查失败也保留这些修正。
+    static func prepare(_ raw: String, clean: Level, hotwords: [String]) -> Prepared {
+        guard clean != .off else { return Prepared(text: raw, note: "", preserved: []) }
+        let spelling = Spelling.apply(raw, hotwords: hotwords)
+        let (text, dropped) = dropRestarts(spelling.text, hotwords: hotwords)
+        let note = spelling.corrections.map { "按释字纠正「\($0.name)」→「\($0.correctedName)」（\($0.explanation)），" }.joined()
+            + dropped.map { "删了重说「\($0)」，" }.joined()
+        return Prepared(text: text, note: note,
+                        preserved: spelling.corrections.flatMap { [$0.correctedName, $0.explanation] })
+    }
+
+    /// 整理一段话，主线程回调。模型出错时退回本机预处理后的文字。
     static func run(_ raw: String, clean: Level, format: Level, hotwords: [String],
                     done: @escaping (_ result: String, _ note: String) -> Void) {
         guard clean != .off || format != .off else { return done(raw, "没开") }
-        // 一字不差的重说先在这里删掉，模型、检查、退回用的「原文」都是删过的
-        let (text, dropped) = clean == .off ? (raw, []) : dropRestarts(raw, hotwords: hotwords)
-        let pre = dropped.map { "删了重说「\($0)」，" }.joined()
+        let prepared = prepare(raw, clean: clean, hotwords: hotwords)
+        let text = prepared.text, pre = prepared.note
         guard content(text).count >= minChars else { return done(text, pre + "太短，不整理") }
         let started = Date()
         var finished = false
@@ -62,7 +78,7 @@ enum Polish {
             DispatchQueue.main.async {
                 guard let out else { return finish(text, "出错，用原文：\(err?.localizedDescription ?? "返回看不懂")") }
                 let r = tidy(out, raw: text)
-                if let why = problem(raw: text, out: r, clean: clean, hotwords: hotwords) {
+                if let why = problem(raw: text, out: r, clean: clean, hotwords: hotwords, preserving: prepared.preserved) {
                     return finish(text, "\(why)，用原文（模型给的是「\(r)」）")
                 }
                 finish(r, r == raw ? "没改" : "整理好了")
@@ -136,8 +152,9 @@ enum Polish {
     }
 
     /// 不能用的理由；能用就是 nil
-    static func problem(raw: String, out: String, clean: Level, hotwords: [String]) -> String? {
+    static func problem(raw: String, out: String, clean: Level, hotwords: [String], preserving: [String] = []) -> String? {
         guard !out.isEmpty else { return "空的" }
+        if preserving.contains(where: { !out.contains($0) }) { return "丢了释字依据或名字" }
         let a = content(raw), b = content(out)
         let kept = align(a, b)
         // 只许删字。长句许补一两个字：识别出的半截词（「每个用的产」）模型会补成「每个用户使用的产品」
