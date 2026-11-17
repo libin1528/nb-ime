@@ -35,12 +35,19 @@ import Cocoa
             if let e = EditWatcher.focused() { print("Focused role:",EditWatcher.role(e)) }
             print("NativeFocus: \(passed) passed, \(failed) failed");exit(1)
         }
+        check(RecentRepeat.Context.current()?.eligible == false,"普通应用的 AXGroup 不作快捷重贴输入框")
         let captured = RetypeFocus.capture(observe())!
         for op in ["field","button","modal","launcher"] {
             command(op)
             check(wait(3) { RetypeFocus.capture(observe()) == nil }, "real \(op) excluded from remote fast path")
-            if op == "field" { check(EditWatcher.strayFocus(from: nil) == nil, "normal native text field still accepted") }
-            if op == "button" { check(EditWatcher.strayFocus(from: nil) != nil, "native button still classified as stray") }
+            if op == "field" {
+                check(EditWatcher.strayFocus(from: nil) == nil, "normal native text field still accepted")
+                check(RecentRepeat.Context.current()?.eligible == true,"原生文本框可以快捷重贴")
+            }
+            if op == "button" {
+                check(EditWatcher.strayFocus(from: nil) != nil, "native button still classified as stray")
+                check(RecentRepeat.Context.current()?.eligible == false,"原生按钮不能快捷重贴")
+            }
         }
         for op in ["session","window"] {
             command(op);check(wait(3) { !captured.matches(observe()) }, "real \(op) identity change detected")
@@ -112,6 +119,32 @@ import Cocoa
             check(elapsed < 3.5 && elapsed >= 0.7,"no fixed four-second focus wait; synchronization delay retained")
         }
         check(wait(4) { pb.string(forType: .string) == "BEFORE" }, "native paste queue restored isolated clipboard")
+        pasted = nil
+        var tapTime = 0.0, captures = 0, repeated = 0
+        let quick = RecentRepeat(recent: { HistoryEntry(text:text,date:Date(timeIntervalSince1970:100),seconds:0,app:"fixture") },context: {
+            captures += 1
+            guard let o = observe() else { return nil }
+            return RecentRepeat.Context(target:o.target,element:o.element,editable:false,remote:o)
+        })
+        let keys = Hotkey(codes:[63],now:{tapTime})
+        keys.onRepeatPrepare = {
+            guard let o = observe() else { return }
+            quick.prepare(expectedPID:pid,expectedElement:o.element)
+        }
+        keys.onRepeat = { repeated += 1;quick.send(paste:{ value,valid in delivery.paste(value,restore:true,validating:valid) },rejected:{ cancelled = true }) }
+        func key(_ down:Bool) {
+            let e=CGEvent(keyboardEventSource:nil,virtualKey:63,keyDown:down)!
+            e.type = .flagsChanged;e.flags=CGEventFlags(rawValue:down ? 0x800000 : 0)
+            _ = keys.process(e,remote:{true},replay:{_ in})
+        }
+        key(true);check(wait(2){captures > 0},"首次按下异步捕获原生焦点")
+        tapTime=0.05;key(false);tapTime=0.15;key(true);tapTime=0.2;key(false)
+        check(repeated == 0 && pasted == nil && pb.string(forType:.string) == "BEFORE","前两次短按不重贴也不写剪贴板")
+        tapTime=0.3;key(true);tapTime=0.35;actionAt=Date();key(false)
+        check(repeated == 1,"第三次完整短按调用生产重贴协调器")
+        check(wait(4){pasted != nil || cancelled} && pasted != nil && !cancelled,"三连按经真实 AX 焦点校验后进入粘贴队列")
+        if let pasted,let actionAt { check(pasted.timeIntervalSince(actionAt) >= 0.7 && pasted.timeIntervalSince(actionAt) < 3.5,"快捷重贴保留同步等待且没有固定四秒等待") }
+        check(wait(4){pb.string(forType:.string) == "BEFORE"},"快捷重贴恢复独立剪贴板")
         pb.releaseGlobally()
         print("NativeFocus: \(passed) passed, \(failed) failed")
         exit(failed == 0 ? 0 : 1)

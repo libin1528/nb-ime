@@ -23,6 +23,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private let recorder = Recorder()
     private let mediaDuck = MediaDuck()
     private var hotkey: Hotkey!
+    private let recentRepeat = RecentRepeat()
     private lazy var capsule = Capsule()
     private var menuBar: MenuBar?
     private lazy var settingsWindow = SettingsWindow(host: self)
@@ -110,6 +111,15 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         try? recorder.prepare()
         hotkey.onDown = { [weak self] in self?.hotkeyDown() }
         hotkey.onUp = { [weak self] in self?.hotkeyUp() }
+        hotkey.tapThreshold = { Settings.current.holdThreshold }
+        hotkey.onRepeatPrepare = { [weak self] in
+            guard let self else { return }
+            let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            let element = self.phase == .holding ? self.frontFocus : self.phase == .idle ? EditWatcher.focused() : nil
+            guard let pid, let element else { self.recentRepeat.cancel(); return }
+            self.recentRepeat.prepare(expectedPID: pid, expectedElement: element)
+        }
+        hotkey.onRepeat = { [weak self] in self?.repeatRecent() }
         hotkey.onOtherKey = { [weak self] in
             guard let self, self.phase == .holding || self.phase == .recording else { return }
             // 按住热键时又按了别的键 = 在用快捷键，不是在说话
@@ -203,6 +213,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     }
 
     private func settingsChanged() {
+        hotkey.cancelRepeat()
         let s = Settings.current
         if s.connectionKey != connKey {
             Log.w("连接设置改了 → \(s.url)")
@@ -267,7 +278,6 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         guard client.connected else {
             edits.finish()
-            pasteWaiting()
             Log.w("按下没反应：没连上识别服务")
             capsule.show(.offline, for: 2.2)
             return
@@ -275,7 +285,6 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         phase = .holding
         mediaDuck.begin(enabled: Settings.current.pauseMedia)
         edits.finish()   // 又要说下一句了，上一句改成什么样就按现在的记
-        pasteWaiting()   // 上一句还在等焦点：要说下一句了，说明人已经回到输入框
         taskId = UUID().uuidString
         startTime = Date().timeIntervalSince1970
         pending = []
@@ -298,6 +307,7 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         let id = taskId
         DispatchQueue.main.asyncAfter(deadline: .now() + Settings.current.holdThreshold) { [weak self] in
             guard let self, self.taskId == id, self.phase == .holding else { return }
+            self.pasteWaiting()   // 确认是按住说话才续上等待的上一句，短按连击不提前粘贴
             self.phase = .recording
             self.startPreview()
             self.flush()
@@ -596,6 +606,24 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     }
 
     // MARK: 粘贴
+
+    private func repeatRecent() {
+        guard phase == .idle else { Log.w("取消三连按重输：录音还在进行"); return }
+        recentRepeat.send(paste: { [weak self] text, valid in
+            guard let self else { return }
+            if let pending = self.waiting, pending.text == text {
+                pending.timer.invalidate()
+                self.waiting = nil   // 同一句显式重输后不能再由旧定时器输入一次，其他待输入内容保留
+            }
+            Paster.paste(text, restore: Settings.current.restoreClipboard, validating: valid)
+            self.lastPasted = text
+            self.capsule.show(.done(text.count), for: 1.6)
+            Log.w("三连按重新输入 \(text.count) 字")
+        }, rejected: { [weak self] in
+            Log.w("取消三连按重输：最近结果或输入位置无法确认，文字仍在历史")
+            self?.capsule.show(.note("exclamationmark.triangle", "未确认输入位置或最近结果 · 可从菜单栏重新输入"), for: 3)
+        })
+    }
 
     /// 粘到当前输入框。焦点刚好不在能打字的地方（点到了别处、弹出了什么），Cmd+V 会落空：
     /// 先等它回到输入框，最多等 4 秒；还没回来也照粘，提示可以从菜单栏重新输入。

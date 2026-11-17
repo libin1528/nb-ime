@@ -9,21 +9,30 @@ import Cocoa
 final class Hotkey {
     var codes: [UInt16] {
         didSet {
+            repeatTap.cancel()
             // 改掉的键正按着的话当它松开了
             for c in held where !codes.contains(c) { press(c, false, note: "（快捷键改了）") }
         }
     }
-    var paused = false               // 「暂停语音输入」
+    var paused = false { didSet { if paused != oldValue { repeatTap.cancel() } } } // 「暂停语音输入」
     var onDown: (() -> Void)?
     var onUp: (() -> Void)?
     var onOtherKey: (() -> Void)?    // 按住热键时又按了别的键
+    var onRepeatPrepare: (() -> Void)?
+    var onRepeat: (() -> Void)?
+    var tapThreshold: () -> TimeInterval = { 0.3 }
     private(set) var installed = false
     private var tap: CFMachPort?
     private var held = Set<UInt16>()          // 正按着的快捷键
     private var capture: ((UInt16?) -> Void)?
     private let remoteOption = RemoteOption()
+    private let repeatTap: ShortTapRepeat
+    private var repeatBlocked = false
 
-    init(codes: [UInt16]) { self.codes = codes }
+    init(codes: [UInt16], now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.codes = codes
+        self.repeatTap = ShortTapRepeat(now: now)
+    }
 
     func install() -> Bool {
         guard !installed else { return true }
@@ -60,8 +69,9 @@ final class Hotkey {
     }
 
     /// 等用户按下新的快捷键；nil 表示按了 Esc 取消
-    func beginCapture(_ done: @escaping (UInt16?) -> Void) { capture = done }
+    func beginCapture(_ done: @escaping (UInt16?) -> Void) { repeatTap.cancel(); capture = done }
     func cancelCapture() { capture = nil }
+    func cancelRepeat() { repeatTap.cancel() }
     var capturing: Bool { capture != nil }
 
     // 修饰键：keyCode → 区分左右的设备位
@@ -112,10 +122,34 @@ final class Hotkey {
 
     /// 与真实事件钩子共用入口；replay 从当前钩子之后继续传递，不再触发录音热键。
     func process(_ event: CGEvent, remote: () -> Bool, replay: (CGEvent) -> Void) -> Bool {
+        let type = event.type
+        let code = type == .otherMouseDown || type == .otherMouseUp
+            ? Self.mouseBase + UInt16(clamping: event.getIntegerValueField(.mouseEventButtonNumber))
+            : UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        let generic = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue
+            | CGEventFlags.maskControl.rawValue | CGEventFlags.maskShift.rawValue
+        let ownGeneric: UInt64
+        switch code {
+        case 54, 55: ownGeneric = CGEventFlags.maskCommand.rawValue
+        case 58, 61: ownGeneric = CGEventFlags.maskAlternate.rawValue
+        case 59, 62: ownGeneric = CGEventFlags.maskControl.rawValue
+        case 56, 60: ownGeneric = CGEventFlags.maskShift.rawValue
+        default: ownGeneric = 0
+        }
+        let devices = Self.modifierMasks.values.reduce(UInt64(0), |) & ~0x800000
+        let ownDevice = Self.modifierMasks[code] ?? 0
+        repeatBlocked = [.keyDown, .keyUp, .flagsChanged, .otherMouseDown, .otherMouseUp].contains(type)
+            && event.flags.rawValue & ((generic | devices) & ~ownGeneric & ~ownDevice) != 0
+        if repeatBlocked { repeatTap.cancel() }
+        if [.keyDown, .keyUp, .flagsChanged, .otherMouseDown, .otherMouseUp].contains(type) {
+            if !codes.contains(code) { repeatTap.cancel() }
+        } else if [.leftMouseDown, .rightMouseDown, .scrollWheel, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged].contains(type) {
+            repeatTap.cancel()
+        }
         let isOption = event.type == .flagsChanged && [58, 61].contains(Int(event.getIntegerValueField(.keyboardEventKeycode)))
         let routed = remoteOption.route(event, enabled: !paused && capture == nil, codes: codes,
                                         remote: isOption && remote())
-        if routed.beganCombination { onOtherKey?() }
+        if routed.beganCombination { repeatTap.cancel(); onOtherKey?() }
         if let original = routed.replay { replay(original) }
         if routed.swallow || routed.combination, event.type == .flagsChanged {
             let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
@@ -191,6 +225,7 @@ final class Hotkey {
 
     /// 按住的键里，实际已经松开的补一个松开
     func resync() {
+        repeatTap.cancel()
         let src = CGEventSourceStateID.combinedSessionState
         let flags = CGEventSource.flagsState(src).rawValue
         remoteOption.resync(flags: flags, keyDown: { CGEventSource.keyState(src, key: $0) })
@@ -211,9 +246,18 @@ final class Hotkey {
     private func press(_ code: UInt16, _ down: Bool, note: String? = nil) {
         let before = held.isEmpty
         if down { held.insert(code) } else { held.remove(code) }
+        if note != nil || (down && !before) || (!down && !held.isEmpty) { repeatTap.cancel() }
         let note = note ?? (before != held.isEmpty ? "" : down ? "（另一个已经按着，不另算一次）" : "（另一个还按着，接着录）")
         Log.w("热键\(down ? "按下" : "松开") \(Self.keyName(code))\(note)")
-        if before, !held.isEmpty { onDown?() } else if !before, held.isEmpty { onUp?() }
+        if before, !held.isEmpty {
+            let began = !repeatBlocked && repeatTap.down(code)
+            onDown?()
+            if began { onRepeatPrepare?() }
+        } else if !before, held.isEmpty {
+            let repeated = repeatTap.up(code, threshold: tapThreshold())
+            onUp?()
+            if repeated { onRepeat?() }
+        }
     }
 
     private func captureKey(_ type: CGEventType, _ code: UInt16, _ flags: UInt64, _ done: @escaping (UInt16?) -> Void) -> Bool {

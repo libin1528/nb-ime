@@ -84,6 +84,8 @@ The recognized text is not pasted as is. It goes through a few steps on the Mac 
 
 The menu-bar icon is the status: red while recording, cycling while recognizing, gray when offline. Clicking the latest item in the menu types it again; items under 最近识别 (Recent) are copied instead.
 
+Three complete short taps of the same input hotkey within 1 second retype the latest final result. Holding for the configured recording threshold keeps normal recording behavior. Combinations, other input, pausing or changing settings interrupt the sequence. Retype checks the original input focus and latest result before queuing and sending; changes or missing history cancel it.
+
 ## Use it as context
 
 **Just want a working one first?** Open your AI coding tool (Claude Code, Codex, Cursor…) and send it this whole block; it clones the repo itself:
