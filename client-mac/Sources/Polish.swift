@@ -1,6 +1,6 @@
 // 识别后润色：完整结果出来、粘贴之前，交给 ITX 上的小模型整理一遍（llama-server + Qwen3.5-4B，走同一条 ssh 隧道）。
 // 模型的两件事各管各的：去口误（只删字：重复、改口、语气词）和整理格式（只动标点、分段、列表，不删字），各有 关 / 中 / 强。
-// 去口误开着时，明确释字的同音纠错、一字不差的重说先用代码处理，不靠模型。
+// 去口误开着时，指示词结巴、明确释字的同音纠错、一字不差的重说先用代码处理，不靠模型。
 // 小模型偶尔会补字、改字、删掉有用的话，所以结果要过一遍检查：只删不加（长句许补一两个字）、热词都在、没单删人称、没删「更正」、除了重复和语气词没删太多；
 // 不过关、超时、连不上，都用本机预处理后的文字。提示词和例子是拿 PM 的真实口语一档档试出来的，改之前先跑 --polish-test。
 
@@ -41,12 +41,14 @@ enum Polish {
     /// 本机能确定的修正先做；超时和模型检查失败也保留这些修正。
     static func prepare(_ raw: String, clean: Level, hotwords: [String]) -> Prepared {
         guard clean != .off else { return Prepared(text: raw, note: "", preserved: []) }
-        let spelling = Spelling.apply(raw, hotwords: hotwords)
+        let determiner = DeterminerRestart.apply(raw, hotwords: hotwords)
+        let spelling = Spelling.apply(determiner.text, hotwords: hotwords)
         let (text, dropped) = dropRestarts(spelling.text, hotwords: hotwords)
-        let note = spelling.corrections.map { "按释字纠正「\($0.name)」→「\($0.correctedName)」（\($0.explanation)），" }.joined()
+        let note = determiner.kept.map { "收掉指示词重说，保留「\($0)」，" }.joined()
+            + spelling.corrections.map { "按释字纠正「\($0.name)」→「\($0.correctedName)」（\($0.explanation)），" }.joined()
             + dropped.map { "删了重说「\($0)」，" }.joined()
         return Prepared(text: text, note: note,
-                        preserved: spelling.corrections.flatMap { [$0.correctedName, $0.explanation] })
+                        preserved: spelling.corrections.flatMap { [$0.correctedName, $0.explanation] } + determiner.kept)
     }
 
     /// 整理一段话，主线程回调。模型出错时退回本机预处理后的文字。
@@ -154,7 +156,10 @@ enum Polish {
     /// 不能用的理由；能用就是 nil
     static func problem(raw: String, out: String, clean: Level, hotwords: [String], preserving: [String] = []) -> String? {
         guard !out.isEmpty else { return "空的" }
-        if preserving.contains(where: { !out.contains($0) }) { return "丢了释字依据或名字" }
+        // 不只查 contains：另一处同名短语不能掩盖此处被删，数量也必须保留。
+        if preserving.contains(where: {
+            out.components(separatedBy: $0).count < raw.components(separatedBy: $0).count
+        }) { return "删了本机修正后必须保留的文字" }
         let a = content(raw), b = content(out)
         let kept = align(a, b)
         // 只许删字。长句许补一两个字：识别出的半截词（「每个用的产」）模型会补成「每个用户使用的产品」

@@ -147,7 +147,7 @@ clone して、まず README、docs/、git log を読んで、各機能がなぜ
 | 読みによるホットワード補正 | [`Hotfix.swift`](client-mac/Sources/Hotfix.swift) | モデルが「万三」と書いても、読みがホットワード「Wan3」と同じなら書き換える。中国語は声調まで一致が条件、数字や量詞に接する部分は触らない |
 | ホットワード表の写り込み対策 | [`HotwordEcho.swift`](client-mac/Sources/HotwordEcho.swift) | 結果全体や文中に疑わしいホットワード列があれば、ホットワードなしで一度だけ再認識する。空白や再び疑わしい結果なら入力せず、最初の結果に戻さない。プレビューと照合処理を共有し、単語内の空白やハイフンも扱う |
 | 文中の明確な漢字説明による訂正 | [`Spelling.swift`](client-mac/Sources/Spelling.swift) | 口誤修正が有効なとき、名前の直後にある漢字の説明から同音・同声調の字を訂正する。対象の名前と説明だけを変更し、ホットワード、引用、否定、曖昧な内容は保持する |
-| 認識後の整形 | [`Polish.swift`](client-mac/Sources/Polish.swift) | 「言い間違いを除く」「書式を整える」がそれぞれ オフ / 中 / 強。一字一句同じ言い直しはモデルに渡す前にコードで削る。小さなモデルの出力は信用せず、「削るだけで足さない、ホットワードは全部残る、人称を消さない、削りすぎない」チェックを通らなければローカル前処理後の文を入力 |
+| 認識後の整形 | [`Polish.swift`](client-mac/Sources/Polish.swift) · [`DeterminerRestart.swift`](client-mac/Sources/DeterminerRestart.swift) | 「言い間違いを除く」「書式を整える」がそれぞれ オフ / 中 / 強。一字一句同じ言い直しはコードで削る。「这这个」のような連続した指示詞の重複は「这个」を残し、モデルが量詞まで削らないよう保護する。小さなモデルの出力は信用せず、「削るだけで足さない、ホットワードは全部残る、人称を消さない、削りすぎない」チェックを通らなければローカル前処理後の文を入力 |
 | 貼り付け前のフォーカス確認 | [`AppController.swift`](client-mac/Sources/AppController.swift) | ショートカットを押した時点のフォーカスを覚えておき、貼り付け前に入力できない場所へ移っていたら戻るのを待つ（最大 4 秒）。メニューバーからもう一度入力もできる |
 | 手直しの記録 | [`Edits.swift`](client-mac/Sources/Edits.swift) | 貼り付けた後、その入力欄をアクセシビリティ API で見守り、どう書き直したかを記録（この Mac の中だけ、今後の改善用のデータ）。パスワード欄は読まない。Electron アプリには先にアクセシビリティツリーを開いてもらう |
 | メニューバー、設定、初回案内 | [`MenuBar.swift`](client-mac/Sources/MenuBar.swift) · [`SettingsWindow.swift`](client-mac/Sources/SettingsWindow.swift) · [`Onboarding.swift`](client-mac/Sources/Onboarding.swift) | メニューバーのアイコン自体が状態表示：録音中は赤、認識中は順に点灯、未接続はグレー。設定はすべて画面から変更できる |
