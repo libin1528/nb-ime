@@ -89,6 +89,39 @@ import Foundation
         let repeated = Polish.prepare("这个方案和这这个种植园都要保留。", clean: .mid, hotwords: words)
         check(Polish.problem(raw: repeated.text, out: "这个方案和这种植园都要保留。", clean: .mid, hotwords: words, preserving: repeated.preserved) != nil, "另一处这个不能掩盖此处量词被删")
 
+        for (raw, bad) in [
+            ("我们分为控制台和控制台外。控制台外的话，我们统一风格。", "我们分为控制台和控制台外的话，我们统一风格。"),
+            ("讨论并解决问题二。问题二是多模态能力。", "讨论并解决问题。二是多模态能力。"),
+            ("什么时候用到这个功能？这个功能需要用户操作吗？", "什么时候用到这个功能？需要用户操作吗？"),
+            ("保留当前预估；当前预估决定运行速度。", "保留当前预估决定运行速度。"),
+            ("打开设置页面。\n设置页面需要检查。", "打开设置页面需要检查。"),
+            ("打开设置页面\r\n设置页面需要检查。", "打开设置页面需要检查。"),
+            ("我们保留这个功能？！这个功能很重要。", "我们保留这个功能？！很重要。"),
+        ] {
+            check(Polish.dropRestarts(raw).0 == raw, "本机不跨完整句边界删重说")
+            for clean in [Polish.Level.off, .mid, .strong] {
+                let p = Polish.prepare(raw, clean: clean, hotwords: words)
+                check(p.text == raw, "生产入口保留两句各自内容")
+                check(Polish.problem(raw: p.text, out: bad, clean: clean, hotwords: words, preserving: p.preserved) != nil, "模型也不能合掉跨句重复")
+                check(Polish.problem(raw: p.text, out: p.text, clean: clean, hotwords: words, preserving: p.preserved) == nil, "两句原样保留能过检查")
+            }
+        }
+        for (raw, expected) in [
+            ("新的设新的设计规范。", "新的设计规范。"),
+            ("发到测试，发到测试服务器。", "发到测试服务器。"),
+            ("发到测试 嗯 发到测试服务器。", "发到测试服务器。"),
+        ] { check(Polish.dropRestarts(raw).0 == expected, "同一句内的半句重启继续允许") }
+        let withClaude = words + ["Claude"]
+        for normal in ["Claw", "Cloud", "Claw 项目与 Cloud 服务是两回事。", "ClawChat 和 Claude Code 正常。", "Use Cloud storage for the Claw project."] {
+            check(Hotfix.apply(normal, withClaude) == normal, "Claude 热词不触发 Claw/Cloud 读音替换")
+            check(Replace.apply(normal, []).text == normal, "不添加 Claw/Cloud 强制替换")
+            check(Polish.prepare(normal, clean: .mid, hotwords: withClaude).text == normal, "本机预处理保留正常英文词")
+            check(Polish.problem(raw: normal, out: normal, clean: .mid, hotwords: withClaude) == nil, "保留正常英文词通过检查")
+        }
+        let cloud = "我们把这个项目部署在 Cloud 服务上面，接下来要检查配置、日志、权限和网络连接，确认每一个入口都可以正常使用。"
+        check(Polish.problem(raw: cloud, out: cloud.replacingOccurrences(of: "Cloud", with: "Claude"), clean: .mid, hotwords: withClaude) != nil, "长句允许补字也不能把 Cloud 换成 Claude")
+        check(Polish.problem(raw: "Claw 项目和 Claw 工具都要保留。", out: "Claw 项目和工具都要保留。", clean: .strong, hotwords: withClaude) != nil, "另一处 Claw 不能掩盖这一次被删")
+
         if let path = CommandLine.arguments.dropFirst().first {
             let data = try Data(contentsOf: URL(fileURLWithPath: path))
             let rows = try JSONSerialization.jsonObject(with: data) as! [[String: Any]]

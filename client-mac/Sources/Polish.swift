@@ -40,7 +40,7 @@ enum Polish {
 
     /// 本机能确定的修正先做；超时和模型检查失败也保留这些修正。
     static func prepare(_ raw: String, clean: Level, hotwords: [String]) -> Prepared {
-        guard clean != .off else { return Prepared(text: raw, note: "", preserved: []) }
+        guard clean != .off else { return Prepared(text: raw, note: "", preserved: SentenceRestart.anchors(raw)) }
         let determiner = DeterminerRestart.apply(raw, hotwords: hotwords)
         let spelling = Spelling.apply(determiner.text, hotwords: hotwords)
         let (text, dropped) = dropRestarts(spelling.text, hotwords: hotwords)
@@ -48,7 +48,7 @@ enum Polish {
             + spelling.corrections.map { "按释字纠正「\($0.name)」→「\($0.correctedName)」（\($0.explanation)），" }.joined()
             + dropped.map { "删了重说「\($0)」，" }.joined()
         return Prepared(text: text, note: note,
-                        preserved: spelling.corrections.flatMap { [$0.correctedName, $0.explanation] } + determiner.kept)
+                        preserved: spelling.corrections.flatMap { [$0.correctedName, $0.explanation] } + determiner.kept + SentenceRestart.anchors(text))
     }
 
     /// 整理一段话，主线程回调。模型出错时退回本机预处理后的文字。
@@ -107,18 +107,19 @@ enum Polish {
     // MARK: 删重说
 
     /// 一字不差、紧挨着说了两遍的一段汉字（至少 3 个字），只留后一遍：「新的设新的设计规范」→「新的设计规范」。
-    /// 两遍中间隔着标点、空格或呃嗯啊哦也算紧挨着，一起删掉。两个字的叠词（研究研究）、同一个字连着的（哈哈哈哈）不动；
+    /// 两遍中间隔着逗号、空格或呃嗯啊哦也算紧挨着，一起删掉；不跨句号、问号、感叹号、分号或换行。
+    /// 两个字的叠词（研究研究）、同一个字连着的（哈哈哈哈）不动；
     /// 删了会丢热词的不删。英文不管，交给模型。返回删完的文字和删掉的几段（给日志看）
     static func dropRestarts(_ text: String, hotwords: [String] = []) -> (String, [String]) {
         var c = Array(text), dropped: [String] = []
         func han(_ x: Character) -> Bool { x.unicodeScalars.allSatisfy { (0x4E00...0x9FFF).contains($0.value) } }
-        func gap(_ x: Character) -> Bool { !(x.isLetter || x.isNumber) || "呃嗯啊哦".contains(x) }
+        func gap(_ x: Character) -> Bool { !SentenceRestart.isBoundary(x) && (!(x.isLetter || x.isNumber) || "呃嗯啊哦".contains(x)) }
         var i = 0
         while i < c.count {
             var end = i
             while end < c.count, han(c[end]) { end += 1 }
             var cut: Range<Int>?
-            // 长的先试：整句说两遍时删整句，不是删半截
+            // 长的先试：同一句里的长短语重说优先整体收掉，不是只删半截
             for k in stride(from: end - i, through: 3, by: -1) {
                 let chunk = c[i..<i + k]
                 guard Set(chunk).count > 1 else { continue }
@@ -160,6 +161,8 @@ enum Polish {
         if preserving.contains(where: {
             out.components(separatedBy: $0).count < raw.components(separatedBy: $0).count
         }) { return "删了本机修正后必须保留的文字" }
+        let names = englishNames(raw), after = englishNames(out)
+        if names.contains(where: { after[$0.key, default: 0] < $0.value }) { return "改了或删了 Claw/Cloud" }
         let a = content(raw), b = content(out)
         let kept = align(a, b)
         // 只许删字。长句许补一两个字：识别出的半截词（「每个用的产」）模型会补成「每个用户使用的产品」
@@ -184,6 +187,16 @@ enum Polish {
 
     /// 说出来就是要打出来的词，模型却当口误删
     private static let spoken = ["更正", "纠正"]
+
+    private static let englishNamePattern = try! NSRegularExpression(pattern: "(?i)(?<![a-z0-9_])(Claw|Cloud)(?![a-z0-9_])")
+    private static func englishNames(_ text: String) -> [String: Int] {
+        let s = text as NSString
+        var counts: [String: Int] = [:]
+        for m in englishNamePattern.matches(in: text, range: NSRange(location: 0, length: s.length)) {
+            counts[s.substring(with: m.range).lowercased(), default: 0] += 1
+        }
+        return counts
+    }
 
     private static let pronouns: Set<String> = ["我", "我们", "咱们", "你", "你们", "他", "他们", "她", "她们", "它"]
 
