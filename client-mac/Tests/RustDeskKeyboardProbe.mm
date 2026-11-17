@@ -1,13 +1,14 @@
 // 加载本机 RustDesk 自带的 Flutter，只调用键盘转换器；不启动引擎、不发送系统按键。
 #import <Cocoa/Cocoa.h>
 #include <dlfcn.h>
+#include <cstdlib>
 #import "flutter/shell/platform/darwin/macos/framework/Source/FlutterEmbedderKeyResponder.h"
 
 static int32_t probe(const void* pointer, bool control) {
   @autoreleasepool {
-    static void* library = dlopen(
-        "/Applications/RustDesk.app/Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS",
-        RTLD_LAZY | RTLD_LOCAL);
+    const char* configured = std::getenv("NBIME_RUSTDESK_FRAMEWORK");
+    static void* library = dlopen(configured ? configured :
+        "/Applications/RustDesk.app/Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS", RTLD_LAZY | RTLD_LOCAL);
     Class responderClass = NSClassFromString(@"FlutterEmbedderKeyResponder");
     if (!library || !responderClass) {
       fprintf(stderr, "RustDesk Flutter keyboard responder is unavailable\n");

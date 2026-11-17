@@ -148,7 +148,7 @@ https://github.com/libin1528/nb-ime 是别人给自己做的 Mac 语音输入法
 | 防模型抄热词表 | [`HotwordEcho.swift`](client-mac/Sources/HotwordEcho.swift) | 整句或正文中出现可疑热词串就不带热词重认一次；空白或仍可疑时停止输入，不恢复旧结果；与预览共用匹配，支持词内空格和连字符 |
 | 句内明确释字纠错 | [`Spelling.swift`](client-mac/Sources/Spelling.swift) | 去口误开启时，依据紧邻名字的「某词的某字」纠正同音同调字；只改该名字与释字，不动热词、引述、否定或歧义内容；没有明确依据就保留 |
 | 识别后润色 | [`Polish.swift`](client-mac/Sources/Polish.swift) · [`DeterminerRestart.swift`](client-mac/Sources/DeterminerRestart.swift) · [`SentenceRestart.swift`](client-mac/Sources/SentenceRestart.swift) | 「去掉口误」「整理格式」各有关 / 中 / 强三档。同一句内一字不差的重说先用代码删掉，完整句边界两侧的重复词保留并保护；「这这个／那那个」只收掉多说的指示词，保留完整「这个／那个」，并防止模型继续删掉量词；不信任小模型的输出，过一遍「只删不加、热词都在、没删人称、没删太多」的检查，不过关就输入本机预处理后的文字 |
-| 粘贴前对焦点 | [`AppController.swift`](client-mac/Sources/AppController.swift) | 按下快捷键时记下焦点；粘之前焦点换到了不能打字的地方，就等它回来（最多 4 秒），菜单栏里还能重新输入一次 |
+| 粘贴前对焦点 | [`AppController.swift`](client-mac/Sources/AppController.swift) · [`RetypeFocus.swift`](client-mac/Sources/RetypeFocus.swift) | 按下快捷键时记下焦点；粘之前焦点换到了不能打字的地方，就等它回来（最多 4 秒）。菜单重新输入时，已确认的 RustDesk 会话、窗口和画面焦点未变则直接进入粘贴队列；等待中发生变化就取消，其他场景沿用原焦点判断 |
 | 远程粘贴 | [`Paster.swift`](client-mac/Sources/Paster.swift) | 读取当前 RustDesk 会话的平台与 Control／Command 置换设置，发送对应的完整粘贴按键；先等 0.7 秒供剪贴板同步，粘贴后保留 2 秒再恢复原剪贴板，连续两句排队输入。等待时切换远程会话会取消粘贴；需要开启剪贴板同步 |
 | 改字记录 | [`Edits.swift`](client-mac/Sources/Edits.swift) | 粘贴后用辅助功能接口盯着那个输入框，记下你把这段字改成了什么，只存本机，给以后的优化攒数据；密码框不读，Electron 应用先请它打开辅助功能树 |
 | 菜单栏、设置、引导 | [`MenuBar.swift`](client-mac/Sources/MenuBar.swift) · [`SettingsWindow.swift`](client-mac/Sources/SettingsWindow.swift) · [`Onboarding.swift`](client-mac/Sources/Onboarding.swift) | 菜单栏图标本身就是状态：录音变红、识别中轮流亮、连不上变灰；所有配置都有界面 |

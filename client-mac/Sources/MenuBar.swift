@@ -23,17 +23,30 @@ final class MenuBar: NSObject, NSMenuDelegate {
     var onSettings: (() -> Void)?
     var onAccess: (() -> Void)?
     var onLocalNetwork: (() -> Void)?
-    var onRetype: ((String) -> Void)?
+    var onRetype: ((String, RetypeAction.Valid?) -> Void)?
+    var onRetypeCancelled: (() -> Void)?
     var onTune: (() -> Void)?
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let menu = NSMenu()
+    let menu = NSMenu()
     private let header = MenuHeader()
     private var state = State()
     private var spin: Timer?
     private var spinFrame = 0
+    private var tracking = false
+    private let recentEntries: () -> [HistoryEntry]
+    private let hotkeys: () -> [UInt16]
+    private let editedCount: () -> Int
+    private let retypeAction: RetypeAction
 
-    override init() {
+    init(recentEntries: @escaping () -> [HistoryEntry] = { History.items },
+         hotkeys: @escaping () -> [UInt16] = { Settings.current.hotkeyCodes },
+         editedCount: @escaping () -> Int = { Tuning.since(Tuning.lastTuned()).edited },
+         retypeAction: RetypeAction = RetypeAction()) {
+        self.recentEntries = recentEntries
+        self.hotkeys = hotkeys
+        self.editedCount = editedCount
+        self.retypeAction = retypeAction
         super.init()
         menu.delegate = self
         menu.autoenablesItems = false
@@ -64,18 +77,23 @@ final class MenuBar: NSObject, NSMenuDelegate {
         if menu.numberOfItems > 0 { rebuild() }
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) { rebuild() }
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if !tracking { retypeAction.prepare() }
+        rebuild()
+    }
+    func menuWillOpen(_ menu: NSMenu) { tracking = true }
+    func menuDidClose(_ menu: NSMenu) { tracking = false }
 
     private func rebuild() {
         menu.removeAllItems()
-        header.hotkeys = Settings.current.hotkeyCodes.map(Hotkey.keyLabel)
+        header.hotkeys = hotkeys().map(Hotkey.keyLabel)
         let head = NSMenuItem()
         head.view = header
         menu.addItem(head)
         menu.addItem(.separator())
 
         // 最近识别：二级菜单列最近 5 条，点一下复制；最新一条直接摆在外面，点一下重新输入到当前输入框
-        let recent = Array(History.items.prefix(5))
+        let recent = Array(recentEntries().prefix(5))
         let sub = NSMenu()
         for e in recent { sub.addItem(recentLine(e.text, width: 300) { Paster.copy(e.text) }) }
         if recent.isEmpty {
@@ -87,7 +105,11 @@ final class MenuBar: NSObject, NSMenuDelegate {
         recentItem.submenu = sub
         menu.addItem(recentItem)
         if let last = recent.first {
-            menu.addItem(recentLine(last.text, width: 200, hint: "重新输入") { [weak self] in self?.onRetype?(last.text) })
+            menu.addItem(recentLine(last.text, width: 200, hint: "重新输入") { [weak self] in
+                self?.retypeAction.send(last.text, regular: { [weak self] text in self?.onRetype?(text, nil) },
+                                       remote: { [weak self] text, valid in self?.onRetype?(text, valid) },
+                                       cancelled: { [weak self] in self?.onRetypeCancelled?() })
+            })
         }
         menu.addItem(.separator())
 
@@ -107,7 +129,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         menu.addItem(pause)
         // 和 Agent 一起调优：右边提示上次调完又攒了几处改字，攒多了就该再调一次
         let tune = item("和 Agent 一起调优…", "") { [weak self] in self?.onTune?() }
-        let edited = Tuning.since(Tuning.lastTuned()).edited
+        let edited = editedCount()
         if edited > 0 { hint(tune, "又攒了 \(edited) 处改字", at: 260) }
         tune.toolTip = "复制一段提示词，粘给你的 agent：它读本机的日志和改字记录，找出老出错的地方，跟你商量着改热词或代码"
         menu.addItem(tune)

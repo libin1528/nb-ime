@@ -641,9 +641,9 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         w.then()
     }
 
-    private func paste(_ text: String) {
+    private func paste(_ text: String, validating: (() -> Bool)? = nil) {
         let t = joined(text)
-        Paster.paste(t, restore: Settings.current.restoreClipboard)
+        Paster.paste(t, restore: Settings.current.restoreClipboard, validating: validating)
         lastPasted = t
     }
 
@@ -671,12 +671,21 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         m.onReconnect = { [weak self] in self?.connect() }
         m.onSettings = { [weak self] in self?.settingsWindow.show() }
-        m.onRetype = { [weak self] text in
-            // 等菜单收起、焦点回到原来的输入框再粘
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        m.onRetype = { [weak self] text, valid in
+            guard let self else { return }
+            if let valid {
+                Log.w("重新输入 \(text.count) 字：RustDesk 原会话、窗口和焦点未变，不等本机输入框")
+                self.pasteWaiting()
+                self.paste(text, validating: valid)
+                self.capsule.show(.done(text.count), for: 1.6)
+            } else {
                 Log.w("重新输入 \(text.count) 字")
-                self?.type(text, from: nil)
+                self.type(text, from: nil)
             }
+        }
+        m.onRetypeCancelled = { [weak self] in
+            Log.w("取消重新输入：RustDesk 会话、窗口或焦点已变，文字仍在历史")
+            self?.capsule.show(.note("exclamationmark.triangle", "焦点已改变 · 菜单栏里可重新输入"), for: 3)
         }
         m.onTune = { [weak self] in
             Paster.copy(Tuning.prompt())

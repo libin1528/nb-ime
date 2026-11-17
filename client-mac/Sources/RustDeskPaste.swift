@@ -8,15 +8,14 @@ struct RustDeskPasteSession: Equatable {
 }
 
 enum RustDeskPaste {
-    static func current(pid: pid_t) -> RustDeskPasteSession? {
+    static func current(pid: pid_t, directory: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences/com.carriez.RustDesk/peers")) -> RustDeskPasteSession? {
         let app = AXUIElementCreateApplication(pid)
         var window: CFTypeRef?, title: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window) == .success,
               let window, CFGetTypeID(window) == AXUIElementGetTypeID(),
               AXUIElementCopyAttributeValue(window as! AXUIElement, kAXTitleAttribute as CFString, &title) == .success,
               let title = title as? String else { return nil }
-        let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences/com.carriez.RustDesk/peers")
-        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         var matches: [RustDeskPasteSession] = []
         for file in files where file.pathExtension == "toml" {
             let name = file.deletingPathExtension().lastPathComponent

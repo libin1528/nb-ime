@@ -4,7 +4,7 @@ import Cocoa
 enum Paster {
     private static let delivery = PasteDelivery()
 
-    static func paste(_ text: String, restore: Bool) { delivery.paste(text, restore: restore) }
+    static func paste(_ text: String, restore: Bool, validating: (() -> Bool)? = nil) { delivery.paste(text, restore: restore, validating: validating) }
 
     static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
@@ -32,6 +32,7 @@ final class PasteDelivery {
         let text: String
         let restore: Bool
         let target: PasteTarget?
+        let validating: (() -> Bool)?
     }
     private let pb: NSPasteboard
     private let target: () -> PasteTarget?
@@ -52,8 +53,8 @@ final class PasteDelivery {
         self.log = log
     }
 
-    func paste(_ text: String, restore: Bool) {
-        pending.append(Request(text: text, restore: restore, target: target()))
+    func paste(_ text: String, restore: Bool, validating: (() -> Bool)? = nil) {
+        pending.append(Request(text: text, restore: restore, target: target(), validating: validating))
         next()
     }
 
@@ -80,8 +81,8 @@ final class PasteDelivery {
         guard !busy, !pending.isEmpty else { return }
         busy = true
         let request = pending.removeFirst()
-        guard target() == request.target else {
-            log("取消排队的粘贴：前台应用已切换，文字可从历史复制")
+        guard target() == request.target, request.validating?() != false else {
+            log("取消排队的粘贴：应用、会话或焦点已变，文字可从历史复制")
             finish()
             return
         }
@@ -107,8 +108,8 @@ final class PasteDelivery {
             pb.writeObjects(saved)
         }
         let send = { [self] in
-            guard target() == request.target, pb.changeCount == ours else {
-                log("取消延迟的粘贴：前台应用或剪贴板已变，文字可从历史复制")
+            guard target() == request.target, request.validating?() != false, pb.changeCount == ours else {
+                log("取消延迟的粘贴：应用、会话、焦点或剪贴板已变，文字可从历史复制")
                 restore()
                 finish()
                 return
