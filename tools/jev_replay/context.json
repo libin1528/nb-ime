@@ -1,0 +1,8 @@
+{
+  "hotwords": ["ClawChat", "ClawNest", "Liveware", "GitHub", "Figma", "Slack", "青弦计划", "沈砚秋"],
+  "rules": [
+    {"from":"Clochat","to":"ClawChat"},
+    {"from":"Jethane","to":"GitHub"},
+    {"from":"言听合","to":"严汀禾"}
+  ]
+}

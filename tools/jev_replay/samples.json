@@ -1,0 +1,22 @@
+[
+  {"id":"p01","kind":"专名","ref":"我明天先把方案发给沈砚秋。","target":"沈砚秋"},
+  {"id":"p02","kind":"专名","ref":"岑知微会在下午三点 review。","target":"岑知微"},
+  {"id":"p03","kind":"专名","ref":"这份附件是严汀禾发来的。","target":"严汀禾"},
+  {"id":"p04","kind":"专名","ref":"把会议纪要放到歧舟计划里。","target":"歧舟计划"},
+  {"id":"p05","kind":"专名","ref":"青弦计划下周一开始。","target":"青弦计划"},
+  {"id":"p06","kind":"专名","ref":"我们先给梁雾川回一封邮件。","target":"梁雾川"},
+  {"id":"p07","kind":"专名","ref":"今天由顾闻溪来签收合同。","target":"顾闻溪"},
+  {"id":"p08","kind":"专名","ref":"请把新版交给莫知序过目。","target":"莫知序"},
+  {"id":"p09","kind":"专名","ref":"我把这些素材移进远汀计划了。","target":"远汀计划"},
+  {"id":"p10","kind":"专名","ref":"晚点提醒周雪桥看一下。","target":"周雪桥"},
+  {"id":"m01","kind":"中英混说","ref":"明天记得在 GitHub 上开一个 issue。","target":"GitHub"},
+  {"id":"m02","kind":"中英混说","ref":"我已经把图标同步到 Figma 了。","target":"Figma"},
+  {"id":"m03","kind":"中英混说","ref":"先别把这个 commit 合到主分支。","target":"commit"},
+  {"id":"m04","kind":"中英混说","ref":"麻烦把 webhook 的日志发一下。","target":"webhook"},
+  {"id":"m05","kind":"中英混说","ref":"这个 endpoint 今天暂时不用开放。","target":"endpoint"},
+  {"id":"m06","kind":"中英混说","ref":"把 onboarding 的截图放在这里。","target":"onboarding"},
+  {"id":"m07","kind":"中英混说","ref":"先跑一下 staging 环境的回归。","target":"staging"},
+  {"id":"m08","kind":"中英混说","ref":"记得给这个 token 配一个过期时间。","target":"token"},
+  {"id":"m09","kind":"中英混说","ref":"我们下午用 Slack 同步一下进度。","target":"Slack"},
+  {"id":"m10","kind":"中英混说","ref":"这个 patch 可以等明天再合。","target":"patch"}
+]
