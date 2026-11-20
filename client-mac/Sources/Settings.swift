@@ -25,6 +25,7 @@ struct Settings {
     var pauseMedia = false           // 说话时压低系统音量；保留历史键名，兼容已打开的设置
     var sounds = false               // 开始和结束时的提示音
     var streamPreview = true         // 说话时实时显示文字
+    var polishProvider = Polish.Provider.local
     var polishClean = Polish.Level.mid    // 识别后去掉口误：重复、改口、语气词
     var polishFormat = Polish.Level.mid   // 识别后整理格式：标点、分段、列表
     var polishPort = 6017            // ITX 上润色模型（llama-server）的端口
@@ -91,6 +92,7 @@ struct Settings {
         if let v = j["pauseMedia"] as? Bool { s.pauseMedia = v }
         if let v = j["sounds"] as? Bool { s.sounds = v }
         if let v = j["streamPreview"] as? Bool { s.streamPreview = v }
+        if let value = j["polishProvider"] as? String, let provider = Polish.Provider(rawValue: value) { s.polishProvider = provider }
         if let v = j["polishClean"] as? String, let l = Polish.Level(rawValue: v) { s.polishClean = l }
         if let v = j["polishFormat"] as? String, let l = Polish.Level(rawValue: v) { s.polishFormat = l }
         if let v = j["polishPort"] as? Int { s.polishPort = v }
@@ -112,6 +114,7 @@ struct Settings {
             "stripShortTrailingPeriod": stripShortTrailingPeriod, "commaBetween": commaBetween, "hudPosition": hudPosition,
             "capsuleSkin": capsuleSkin.rawValue,
             "pauseMedia": pauseMedia, "sounds": sounds, "streamPreview": streamPreview, "onboarded": onboarded,
+            "polishProvider": polishProvider.rawValue,
             "polishClean": polishClean.rawValue, "polishFormat": polishFormat.rawValue,
             "polishPort": polishPort, "polishLocalPort": polishLocalPort,
             "transcribePort": transcribePort, "transcribeLocalPort": transcribeLocalPort,
@@ -157,7 +160,13 @@ struct Settings {
     }
 
     /// 「错的=对的」这样的行
-    static func replaceRules() -> [ReplaceRule] { hotwordLines().compactMap(ReplaceRule.parse) }
+    static func replaceRules() -> [ReplaceRule] {
+        hotwordLines().compactMap(ReplaceRule.parse).filter { !$0.isPronunciationAlias }
+    }
+
+    static func pronunciationAliases() -> [ReplaceRule] {
+        hotwordLines().compactMap(ReplaceRule.parse).filter(\.isPronunciationAlias)
+    }
 
     /// 文件可能被手改过，打开设置时重读一次
     static func reloadHotwords() { cachedLines = nil }

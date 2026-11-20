@@ -41,14 +41,14 @@ So please treat it as reference material, not as software.
 
 Free voice input apps are already good. I built my own anyway, for two reasons:
 
-- **Privacy.** Audio and text stay on my home network and are never uploaded to anyone's server.
+- **Privacy.** The ITX handles recognition and Q4 polishing by default. If you select DeepSeek Flash, only the text to polish is sent to DeepSeek.
 - **In my working environment, a self-hosted service is clearly better and more stable.** Recognition runs on a GPU machine that serves only me: no queues, no rate limits, no internet hiccups. The full result arrives about 0.8 s after release, and polish adds about 0.5 s on average. The hotword list holds the names from my own projects, and the hotkeys and polish strength are tuned to my habits.
 
 An online product serves millions of people, so it has to balance scale, cost and experience, and design for the average user. NB doesn't have to make that trade-off: it serves one person, so every choice comes down to whether it feels right to me.
 
 ## How it works
 
-The client only records, shows and types. Recognition and polish run on a GPU box on the home network, reached through an ssh tunnel, so audio and text never leave the house.
+The Mac client records audio and inserts the result. An SSH tunnel connects it to the recognition and polishing services on the ITX.
 
 <p align="center">
   <picture>
@@ -145,7 +145,7 @@ Knowing what it was written for tells you what to swap out:
 | Recording capsule | [`Capsule.swift`](client-mac/Sources/Capsule.swift) | System `NSGlassEffectView` (clear glass with a thin contrasting backing under the text); grows from a dot into a capsule and morphs continuously between states; the waveform follows the input level and the capsule expands upward with live text |
 | Global hotkeys | [`Hotkey.swift`](client-mac/Sources/Hotkey.swift) | A CGEventTap on keyboard and mouse: a lone modifier, an F key or a mouse side button can be the hotkey, two at once; re-syncs with the real key state after the system disables the tap |
 | Recording and microphone | [`Audio.swift`](client-mac/Sources/Audio.swift) · [`Recordings.swift`](client-mac/Sources/Recordings.swift) | Follow the system mic or pick one, refreshed on plug/unplug; `AVAudioEngine` only knows the device it was built with, so it is rebuilt when the device changes. Pure silence (below -55 dB) is never sent; the last 20 recordings are kept as wav and can be played from History |
-| Streaming preview | [`AppController.swift`](client-mac/Sources/AppController.swift) | The same audio goes over two WebSockets: one gives a preview every 2 s, the other the full result after release, which is what gets typed |
+| Live preview | [AppController.swift](client-mac/Sources/AppController.swift) | Audio is uploaded once. Optional drafts reuse audio from the recognition buffer. With previews off, only the regular recognition path runs. |
 | Hotwords and must-replace rules | [`WordsPane.swift`](client-mac/Sources/WordsPane.swift) · [`Replace.swift`](client-mac/Sources/Replace.swift) | The Hotwords tab is a click-to-edit list by default, or plain text one per line; `wrong=right` always replaces, whole words only, longest first, one pass; a broken rule turns yellow and says why |
 | Hotword fix by pronunciation | [`Hotfix.swift`](client-mac/Sources/Hotfix.swift) | When the model writes 万三 but it sounds like the hotword "Wan3", swap it back; Chinese hotwords must match tones too, and spans next to numbers or measure words are left alone |
 | Guard against hotword echo | [`HotwordEcho.swift`](client-mac/Sources/HotwordEcho.swift) | Re-recognize suspicious whole or embedded hotword runs once without hotwords; reject empty or still suspicious retries instead of restoring the first result. Share matching with previews, including spaces and hyphens inside terms |
@@ -161,11 +161,10 @@ Settings › 通用 (General) › 声音 (Sound) has a “Lower playing audio wh
 
 Each of these is a line or two of code, and each came from a measurement or a failure. Details are in [`docs/`](docs/) and the commit history:
 
-- **The server buffers audio per connection, not per task.** Preview and full recognition need separate WebSockets; sharing one mixes the audio and the full result comes back empty.
+- The server buffers audio per connection. Optional drafts read a range from the main audio buffer.
 - **When the voice is too quiet or there is only silence, the ASR model reads the hotword list from its prompt back as the transcript.** Detect it and re-recognize once without hotwords; an empty retry stops input instead of restoring the suspicious result. Previews do it too, yet previews without hotwords get proper nouns wrong, so both sides need handling. When the start of a recording is quiet, it may also paste the whole list in front of the real words (3 times in 20 runs of the same clip), which needs catching too.
 - **"Recognition got worse" is usually the microphone, not the model.** A wireless mic receiver sends pure silence when the transmitter is off or too far; before fixing it, speech peaked at -47 dB, after it around -30 dB, and the errors went away. So silence is never sent: the capsule says "no voice heard" with the mic's name, and the recording is kept for playback.
 - **`AVAudioEngine` sticks to the device it was built with,** even after the system default changes, so rebuild it and set the device explicitly; tap with the mic's own `inputFormat`, since `outputFormat` throws when input and output sample rates differ; when stopping, stop the engine before removing the tap, or it crashes.
-- **2-second preview segments are the sweet spot:** 1 to 1.5 s behind speech; 3 s is more accurate but updates too slowly.
 - **Global `NSEvent` monitors don't see lone modifier presses,** so it uses a CGEventTap. Key presses simulated by an AI are dropped by the system, so hotkeys can only be tested by a human hand, with the log as the judge.
 - **Rebuilding loses the Accessibility permission** unless you sign with the same development certificate from your keychain; changing the bundle id loses it too.
 - **Clear glass without a backing makes text unreadable on dark backgrounds in light mode.** `tintColor` barely does anything, so the capsule draws its own thin contrasting layer.
@@ -211,7 +210,7 @@ Local data lives in `~/Library/Application Support/NBIME/`: settings `config.jso
 
 Debugging:
 
-- `NBIME --test-file <audio>`: no microphone; sends the file at real-time pace through the same path (including the preview) and prints `PREVIEW` / `RESULT`.
+- `NBIME --test-file <audio> [--preview on|off]` — Replay audio in real time and compare preview settings and final transcripts.
 - `NBIME --demo <screen>`: for screenshots: `listen` `quiet` `preview` `long` `think` `done` `miss` `offline` `nosound` `morph` (the full morph sequence) `menu` `onboarding` `settings:0`…`settings:6`.
 - `NBIME --polish-test <file>`: one sentence per line, each run through all 8 polish level combinations, one JSON line per run (`--levels 中中,强强` runs only those). Run it before and after changing the prompt.
 - `NBIME --edit-test <text just typed> [--seconds N]`: pretends that text was just pasted into the focused field, watches it for N seconds and logs the edit, without saving it. Launch the installed app with `open -g -n -a` (the Accessibility permission belongs to the app).
@@ -225,7 +224,7 @@ Debugging:
 |---|---|---|
 | [CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline) | Recognition server; the client speaks its WebSocket protocol | MIT |
 | [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) | Speech recognition model (1.7B; the q5_k quantization ships with CapsWriter's model pack) | Apache-2.0 |
-| [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) | Small model for polish ([unsloth](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF)'s Q8_0 quantization) | Apache-2.0 |
+| [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) | Small model for polish ([unsloth](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF)'s Q4_K_M quantization) | Apache-2.0 |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | `llama-server` for the polish model (the Vulkan build bundled with CapsWriter) | MIT |
 | [websockets](https://github.com/python-websockets/websockets), [NumPy](https://github.com/numpy/numpy) | Debug scripts in `tools/` | BSD-3-Clause |
 

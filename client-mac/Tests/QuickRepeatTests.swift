@@ -75,6 +75,20 @@ import Cocoa
                 check(h.pb.string(forType: .string) == "原剪贴板","本机和远程仍恢复原剪贴板")
             }
         }
+        for interrupt in [false, true] {
+            let h = Harness([63,1004])
+            for i in 0..<3 {
+                h.key(63,true,flags: 0x800100)
+                h.clock.advance(0.10)
+                h.key(63,false,flags: 0x100)
+                h.key(179,true,flags: 0x100)
+                h.key(179,false,flags: 0x100)
+                if interrupt && i == 1 { h.key(0,true); h.key(0,false) }
+                h.clock.advance(0.05)
+            }
+            h.clock.advance(4)
+            check(h.pasted == (interrupt ? [] : [h.latest!.text]),"地球键附带事件属于同一次短按，真正的其他输入仍打断连击")
+        }
         for count in [1,2] {
             let h = Harness();for _ in 0..<count { h.tap() };h.clock.advance(4)
             check(h.pasted.isEmpty && h.requested == 0,"一两次短按不输入，也不覆盖最近结果")

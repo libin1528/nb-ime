@@ -7,13 +7,21 @@ import Foundation
 struct ReplaceRule {
     let from: [String]
     let to: String
+    let isPronunciationAlias: Bool
 
-    static let seps = ["=>", "->", "→", "＝", "="]
+    init(from: [String], to: String, isPronunciationAlias: Bool = false) {
+        self.from = from
+        self.to = to
+        self.isPronunciationAlias = isPronunciationAlias
+    }
+
+    static let aliasSeparator = "~="
+    static let seps = [aliasSeparator, "=>", "->", "→", "＝", "="]
 
     /// 写了等号的行都按规则看，哪怕写错了没生效，也不再当普通热词
     static func isRule(_ line: String) -> Bool { seps.contains { line.contains($0) } }
 
-    /// 一行里有等号（半角、全角，也认 -> → =>）就是规则；左边几种错法用顿号、斜杠或逗号隔开。左边不到两个字的不生效，返回 nil
+    /// ~= 表示读音别名。左边几种写法用顿号、斜杠或逗号隔开；不到两个字的不生效。
     static func parse(_ line: String) -> ReplaceRule? {
         guard let r = seps.compactMap({ line.range(of: $0) }).min(by: { $0.lowerBound < $1.lowerBound }) else { return nil }
         let to = line[r.upperBound...].trimmingCharacters(in: .whitespaces)
@@ -21,14 +29,15 @@ struct ReplaceRule {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { $0.count >= 2 && $0 != to }
         guard !to.isEmpty, !from.isEmpty else { return nil }
-        return ReplaceRule(from: from, to: to)
+        return ReplaceRule(from: from, to: to, isPronunciationAlias: line[r] == aliasSeparator)
     }
 }
 
 enum Replace {
     /// 按规则替换一遍，返回替换后的文字和换了哪些（日志用）
     static func apply(_ text: String, _ rules: [ReplaceRule]) -> (text: String, hits: [String]) {
-        let pairs = rules.flatMap { r in r.from.map { ($0 as NSString, r.to) } }.sorted { $0.0.length > $1.0.length }
+        let pairs = rules.filter { !$0.isPronunciationAlias }
+            .flatMap { r in r.from.map { ($0 as NSString, r.to) } }.sorted { $0.0.length > $1.0.length }
         guard !pairs.isEmpty else { return (text, []) }
         let s = text as NSString
         var out = "", hits: [String] = [], i = 0

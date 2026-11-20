@@ -26,6 +26,12 @@
 3. 改 `config_server.py` 的上面两处。
 4. 在 ITX 上以部署用户身份打开**管理员 PowerShell**，跑 `install-autostart.ps1`；它会写入识别映像的 IFEO 优先级，再注册并启动任务。
 
+### 中文时间格式化
+
+ITX 的 CapsWriter 数字格式化会先保护「一点二十五」这类省略「分」的时刻，输出 `1点25`。实际小数、版本号和带「分」的时间继续由 CapsWriter 原来的数字规则处理。
+
+重装 CapsWriter v2.6 时，把本仓的 `server/clock_itn.py` 放到 CapsWriter 的 `core\server\formatter\`。先备份同目录的 `text_formatter.py`，再在其中导入 `from .clock_itn import normalize_clock_numbers`，把 `text = chinese_to_num(text)` 改为 `text = normalize_clock_numbers(text, chinese_to_num)`。按下文重启后，用「一点二十五」「一点二五公斤」和「一点二点一五版本」核对输出。需要撤回时，恢复备份的 `text_formatter.py` 并重启。
+
 ## 常用操作
 
 ```powershell
@@ -72,12 +78,15 @@ schtasks /run /tn CapsWriterServer
 
 ## 润色用的小模型
 
-识别结果粘贴前，客户端会把文字交给 ITX 上的小模型整理一遍（去口误、整理格式）。用的是 CapsWriter 自带的 llama-server（Vulkan 版，`core\server\engines\llama\bin\`），不用另装运行时。
+默认在识别结果粘贴前，客户端会把文字交给 ITX 上的小模型整理一遍（去口误、整理格式）。用的是 CapsWriter 自带的 llama-server（Vulkan 版，`core\server\engines\llama\bin\`），不用另装运行时。
+
+在「设置 › 润色 › 处理位置」可以切换 DeepSeek Flash。Mac 经 SSH 隧道向 ITX 的 6018 端口提交待整理文字，ITX 从运行账户的 DEEPSEEK_API_KEY 读取密钥并调用 Flash。密钥保存在 ITX；两项整理程度都关闭时，客户端跳过模型调用。
+
 
 | 项 | 值 |
 |---|---|
 | 目录 | `%USERPROFILE%\nb-llm` |
-| 模型 | `Qwen3.5-4B-Q8_0.gguf`（unsloth 的量化，4.5GB；在 Mac 上下好 scp 过去） |
+| 模型 | `Qwen3.5-4B-Q4_K_M.gguf`（unsloth 的量化；在 Mac 上下好 scp 过去） |
 | 监听 | `127.0.0.1:6017`，客户端的 ssh 隧道把本机 16017 转过来 |
 | 占用 | 显存约 5GB（加上识别一共约 7GB / 12GB）；`--no-mmap` 以后进程内存不到 1GB |
 | 自启 | `install-polish.ps1` 注册计划任务 `NBPolishLLM`，和识别服务一样 |
@@ -87,7 +96,7 @@ schtasks /run /tn CapsWriterServer
 
 部署（识别服务已经装好的前提下）：
 
-1. 在 Mac 上从 Hugging Face 下 [`unsloth/Qwen3.5-4B-GGUF`](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) 里的 `Qwen3.5-4B-Q8_0.gguf`，`scp` 到服务端机器的 `%USERPROFILE%\nb-llm\`。
+1. 在 Mac 上从 Hugging Face 下 [`unsloth/Qwen3.5-4B-GGUF`](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) 里的 `Qwen3.5-4B-Q4_K_M.gguf`，`scp` 到服务端机器的 `%USERPROFILE%\nb-llm\`。
 2. 把 `install-polish.ps1` 拷到服务端机器上，以登录用户身份跑：`powershell -NoProfile -ExecutionPolicy Bypass -File install-polish.ps1`。最后打出 `Running` 和 `{"status":"ok"}` 就是起来了。
 3. 客户端不用改：ssh 隧道会多转发一个端口，连上以后「设置 › 润色」页底下的点变绿。不想跑这个模型，就在那一页把两项都关掉。
 
@@ -156,3 +165,7 @@ Get-Content -Tail 20 -Encoding UTF8 %USERPROFILE%\nb-transcribe\server.log
 - 服务端 → 客户端：`{task_id, is_final, text, ...}`。
 - `context` 是热词提示。人声太弱时 Qwen3-ASR 会把它原样抄出来，客户端统一检测整句和正文中的热词串，不带热词重认一次；重认空白或仍可疑时停止输入，不恢复第一次结果（见 `client-mac/Sources/HotwordEcho.swift`）。
 - 多个客户端可以同时连，服务端单模型排队，按连接轮转。
+
+## 同一条音频流上的预览
+
+CapsWriter v2.6 停止后运行 `python install-dictation-preview.py <CapsWriter-Offline目录>`，然后启动服务。安装器会备份旧的接收模块。新版 Mac 客户端在音频帧上附带可选的 `nb_preview` 范围，服务端从同一缓冲区提交短草稿，结果有独立 ID。未带此字段的客户端沿用原协议。服务器未安装此模块时，新客户端仍可正常定稿。

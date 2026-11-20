@@ -32,5 +32,7 @@ final class ShortTapRepeat {
         return true
     }
 
+    var betweenFnTaps: Bool { key == 63 && count > 0 && pressed == nil }
+
     func cancel() { key = nil; pressed = nil; count = 0 }
 }

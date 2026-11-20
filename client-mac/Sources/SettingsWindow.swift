@@ -24,6 +24,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     static let inner: CGFloat = width - 56
 
     private var window: NSWindow?
+    private var navigation: [NSButton] = []
     private var tabs: NSTabViewController?
     private weak var host: SettingsHost?
 
@@ -33,7 +34,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     func show(_ tab: Tab? = nil) {
         if window == nil { build() }
-        if let tab { tabs?.selectedTabViewItemIndex = tab.rawValue }
+        if let tab { select(tab.rawValue) }
         Settings.reloadHotwords()
         NotificationCenter.default.post(name: .hotwordsChanged, object: nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -45,7 +46,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     private func build() {
         guard let host else { return }
         let tc = NSTabViewController()
-        tc.tabStyle = .toolbar
+        tc.tabStyle = .unspecified
         tc.transitionOptions = []
         let items: [(String, String, NSViewController)] = [
             ("通用", "gearshape", GeneralPane()),
@@ -64,15 +65,59 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             vc.title = title
             tc.addTabViewItem(item)
         }
-        let w = NSWindow(contentViewController: tc)
+        let root = NSViewController()
+        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: Self.width + 152, height: Self.height))
+        root.view = canvas
+        root.addChild(tc)
+        tc.tabView.tabViewType = .noTabsNoBorder
+        let content = tc.view
+        content.frame = NSRect(x: 152, y: 0, width: Self.width, height: Self.height)
+        canvas.addSubview(content)
+        let sidebar = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 152, height: Self.height))
+        sidebar.material = .sidebar
+        canvas.addSubview(sidebar)
+        let nav = UI.vstack([], spacing: 4)
+        nav.translatesAutoresizingMaskIntoConstraints = false
+        sidebar.addSubview(nav)
+        NSLayoutConstraint.activate([nav.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
+                                     nav.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10),
+                                     nav.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 18)])
+        let groups: [(String, [Tab])] = [("语音输入", [.general, .hotkey, .appearance]),
+                                          ("文字", [.polish, .words, .history]), ("服务", [.conn, .about])]
+        for (title, pages) in groups {
+            nav.addArrangedSubview(UI.sectionTitle(title))
+            for page in pages {
+                let (label, symbol, _) = items[page.rawValue]
+                let button = NSButton(title: "  " + label, target: nil, action: nil)
+                button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                button.imagePosition = .imageLeading
+                button.alignment = .left
+                button.bezelStyle = .recessed
+                button.setButtonType(.pushOnPushOff)
+                button.tag = page.rawValue
+                button.onAction { [weak self] _ in self?.select(page.rawValue) }
+                nav.addArrangedSubview(button)
+                button.widthAnchor.constraint(equalTo: nav.widthAnchor).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 34).isActive = true
+                navigation.append(button)
+            }
+            if let last = nav.arrangedSubviews.last { nav.setCustomSpacing(18, after: last) }
+        }
+        let w = NSWindow(contentViewController: root)
+        w.title = "NB 输入法设置"
         w.styleMask = [.titled, .closable]
-        w.toolbarStyle = .preference
         w.isReleasedWhenClosed = false
         w.delegate = self
-        w.setContentSize(NSSize(width: Self.width, height: Self.height))
+        w.setContentSize(canvas.frame.size)
         w.center()
         window = w
         tabs = tc
+        select(Tab.general.rawValue)
+    }
+
+    private func select(_ index: Int) {
+        tabs?.selectedTabViewItemIndex = index
+        for button in navigation { button.state = button.tag == index ? .on : .off }
     }
 
     func windowWillClose(_ n: Notification) { host?.cancelHotkeyCapture() }
@@ -82,25 +127,44 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
 class Pane: NSViewController {
     let stack = NSStackView()
+    var scrollsContent: Bool { false }
 
     override func loadView() {
         let v = BackgroundView()
         v.frame = NSRect(x: 0, y: 0, width: SettingsWindow.width, height: SettingsWindow.height)
+        let content = scrollsContent ? scrollContent(in: v) : v
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 0
         stack.translatesAutoresizingMaskIntoConstraints = false
-        v.addSubview(stack)
+        content.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 28),
-            stack.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -28),
-            stack.topAnchor.constraint(equalTo: v.topAnchor, constant: 22),
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 28),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -28),
+            stack.topAnchor.constraint(equalTo: content.topAnchor, constant: 22),
             v.widthAnchor.constraint(equalToConstant: SettingsWindow.width),
             v.heightAnchor.constraint(equalToConstant: SettingsWindow.height),
         ])
+        if scrollsContent {
+            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -22).isActive = true
+        }
         view = v
         preferredContentSize = v.frame.size
         build()
+    }
+
+    private func scrollContent(in view: NSView) -> NSView {
+        let scroll = NSScrollView(frame: view.bounds)
+        scroll.autoresizingMask = [.width, .height]
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        let content = PaneDocumentView()
+        content.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = content
+        view.addSubview(scroll)
+        content.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor).isActive = true
+        return content
     }
 
     func build() {}
@@ -119,6 +183,10 @@ class Pane: NSViewController {
     }
 }
 
+private final class PaneDocumentView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 final class BackgroundView: NSView {
     override func draw(_ dirty: NSRect) {
         UI.windowBG.setFill()
@@ -131,23 +199,24 @@ final class BackgroundView: NSView {
 final class GeneralPane: Pane {
     private var loginSwitch: NSSwitch!
     private let mic = NSPopUpButton()
+    override var scrollsContent: Bool { true }
 
     override func build() {
         let s = Settings.current
         loginSwitch = UI.toggle(SMAppService.mainApp.status == .enabled) { on in
             AppController.setLoginItem(on)
         }
+        add(UI.sectionTitle("听写"), after: 6)
         add(GroupView([
-            UI.row("登录时自动启动", nil, loginSwitch),
             UI.row("提示框位置", "「跟着光标」在拿不到光标位置的应用里会退回到屏幕底部",
                    UI.segmented(["屏幕底部", "跟着光标"], selected: s.hudPosition == "caret" ? 1 : 0) {
                        Settings.current.hudPosition = $0 == 1 ? "caret" : "bottom"
                    }),
-            UI.row("说话时实时显示文字", "每 2 秒更新一次；松开后用完整识别的结果输入",
+            UI.row("说话时显示预览", "关闭后只显示收音状态，ITX 只处理正式识别",
                    UI.toggle(s.streamPreview) { Settings.current.streamPreview = $0 }),
         ]))
         add(UI.sectionTitle("声音"), after: 6)
-        mic.controlSize = .small
+        mic.controlSize = .regular
         mic.onAction { [weak self] _ in
             guard let self, let uid = self.mic.selectedItem?.representedObject as? String else { return }
             var s = Settings.current
@@ -165,9 +234,9 @@ final class GeneralPane: Pane {
                    UI.toggle(s.pauseMedia) { Settings.current.pauseMedia = $0 }),
             UI.row("开始和结束时的提示音", "压低声音时跳过开始提示音，结束提示音照常播放", UI.toggle(s.sounds) { Settings.current.sounds = $0 }),
         ]))
-        add(UI.sectionTitle("文字"), after: 6)
+        add(UI.sectionTitle("输入结果"), after: 6)
         let lang = NSPopUpButton()
-        lang.controlSize = .small
+        lang.controlSize = .regular
         let langs = [("自动（中英混说）", "auto"), ("中文", "chinese"), ("英文", "english")]
         lang.addItems(withTitles: langs.map(\.0))
         lang.selectItem(at: langs.firstIndex { $0.1 == s.language } ?? 0)
@@ -180,6 +249,10 @@ final class GeneralPane: Pane {
                    UI.toggle(s.commaBetween) { Settings.current.commaBetween = $0 }),
             UI.row("输入后恢复剪贴板", "文字是借剪贴板粘进去的，粘完把你原来复制的东西放回去",
                    UI.toggle(s.restoreClipboard) { Settings.current.restoreClipboard = $0 }),
+        ]))
+        add(UI.sectionTitle("使用偏好"), after: 6)
+        add(GroupView([
+            UI.row("登录时自动启动", nil, loginSwitch),
             UI.row("记下我改了哪些字", "输入后记下你改成了什么，只存本机，密码框不读",
                    UI.toggle(s.trackEdits) { Settings.current.trackEdits = $0 }),
         ]))
@@ -282,7 +355,7 @@ final class HotkeyPane: Pane {
 
     private func slider(_ v: Double, _ lo: Double, _ hi: Double, _ f: @escaping (Double) -> Void) -> NSView {
         let s = NSSlider(value: v, minValue: lo, maxValue: hi, target: nil, action: nil)
-        s.controlSize = .small
+        s.controlSize = .regular
         s.numberOfTickMarks = Int(((hi - lo) / 0.05).rounded()) + 1
         s.allowsTickMarkValuesOnly = true
         s.tickMarkPosition = .below
@@ -349,9 +422,6 @@ final class HotkeyPane: Pane {
 
 /// 识别后、输入前用小模型整理一遍：去掉口误、整理格式各三档。下面一段例子跟着档位变：「说的」里删掉的字划掉，「输入」是整理后的样子
 final class PolishPane: Pane {
-    private let example = Polish.examples[1]
-    private let said = PolishPane.text()
-    private let typed = PolishPane.text()
     private let status = UI.label("", size: 12, color: .secondaryLabelColor)
     private let dot = NSView()
     private var cleanDetail: NSTextField?
@@ -370,28 +440,16 @@ final class PolishPane: Pane {
         ((row as? NSStackView)?.arrangedSubviews.first as? NSStackView)?.arrangedSubviews.last as? NSTextField
     }
 
-    /// 例子里的一段文字，能折行
-    private static func text() -> NSTextField {
-        let l = UI.wrapping("", size: 13, width: SettingsWindow.inner - 28 - 44)
-        l.maximumNumberOfLines = 0
-        return l
-    }
-
-    /// 例子的一行：左边一列小标题，右边文字
-    private static func pair(_ title: String, _ text: NSTextField) -> NSView {
-        let t = UI.label(title, size: 12, color: .tertiaryLabelColor)
-        t.widthAnchor.constraint(equalToConstant: 32).isActive = true
-        let h = NSStackView(views: [t, text])
-        h.alignment = .top
-        h.spacing = 12
-        h.edgeInsets = NSEdgeInsets(top: 11, left: 14, bottom: 11, right: 14)
-        // 横排的 stack 不会按折行后的文字撑高，自己补上
-        h.heightAnchor.constraint(greaterThanOrEqualTo: text.heightAnchor, constant: 22).isActive = true
-        return h
-    }
-
     override func build() {
         let s = Settings.current
+        add(UI.sectionTitle("润色模型"), after: 6)
+        let provider = UI.segmented(["ITX · Q4", "DeepSeek Flash"], selected: s.polishProvider == .local ? 0 : 1) { [weak self] index in
+            Settings.current.polishProvider = index == 0 ? .local : .flash
+            self?.checkProvider()
+        }
+        add(GroupView([UI.row("处理位置", nil, provider)]), after: 8)
+        add(UI.footnote("Q4 在 ITX 上整理文字。选择 Flash 后，ITX 会将本次听写文字发送给 DeepSeek。"))
+        add(UI.sectionTitle("整理程度"), after: 6)
         let levels = Polish.Level.allCases
         let cleanRow = UI.row("去掉口误", " ", UI.segmented(levels.map(\.name), selected: levels.firstIndex(of: s.polishClean)!) { [weak self] i in
             Settings.current.polishClean = levels[i]
@@ -404,8 +462,6 @@ final class PolishPane: Pane {
         cleanDetail = Self.detailLabel(cleanRow)
         formatDetail = Self.detailLabel(formatRow)
         add(GroupView([cleanRow, formatRow]))
-        add(UI.sectionTitle("效果预览"), after: 6)
-        add(GroupView([Self.pair("说的", said), Self.pair("输入", typed)]), after: 10)
         dot.wantsLayer = true
         dot.layer?.cornerRadius = 3.5
         dot.widthAnchor.constraint(equalToConstant: 7).isActive = true
@@ -416,12 +472,18 @@ final class PolishPane: Pane {
 
     override func viewWillAppear() {
         super.viewWillAppear()
-        status.stringValue = "正在连整理模型…"
+        checkProvider()
+    }
+
+    private func checkProvider() {
+        let provider = Settings.current.polishProvider
+        status.stringValue = "正在检查连接…"
         dot.layer?.backgroundColor = NSColor.tertiaryLabelColor.cgColor
         Polish.ping { [weak self] ok in
-            self?.status.stringValue = ok
-                ? "整理模型跑在你自己的 ITX 上，文字不经过别人的服务器；3 秒没整理好就输入原文"
-                : "连不上 ITX 上的整理模型，先直接输入原文"
+            guard provider == Settings.current.polishProvider else { return }
+            self?.status.stringValue = provider == .local
+                ? (ok ? "ITX 上的 Q4 已就绪" : "Q4 未连接，暂用原文")
+                : (ok ? "Flash 密钥已在 ITX 配置" : "无法连接 Flash 服务或密钥未配置，暂用原文")
             self?.dot.layer?.backgroundColor = (ok ? UI.green : UI.orange).cgColor
         }
     }
@@ -430,18 +492,7 @@ final class PolishPane: Pane {
         let s = Settings.current
         cleanDetail?.stringValue = Self.cleanSays[s.polishClean]!
         formatDetail?.stringValue = Self.formatSays[s.polishFormat]!
-        let out = s.polishClean == .off && s.polishFormat == .off
-            ? example.raw : example.out[s.polishClean.name + s.polishFormat.name]!.replacingOccurrences(of: "\n\n", with: "\n")
-        let font = NSFont.systemFont(ofSize: 13)
-        typed.attributedStringValue = NSAttributedString(string: out, attributes: [.font: font, .foregroundColor: NSColor.labelColor])
-        let marked = NSMutableAttributedString()
-        for (c, kept) in zip(example.raw, Polish.keptMask(raw: example.raw, out: out)) {
-            marked.append(NSAttributedString(string: String(c), attributes: kept
-                ? [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
-                : [.font: font, .foregroundColor: NSColor.tertiaryLabelColor,
-                   .strikethroughStyle: NSUnderlineStyle.single.rawValue, .strikethroughColor: NSColor.tertiaryLabelColor]))
-        }
-        said.attributedStringValue = marked
+
     }
 }
 
@@ -555,7 +606,7 @@ private final class HistoryCell: NSTableCellView {
         lines.append(UI.label(meta, size: 11, color: .tertiaryLabelColor))
         let left = UI.vstack(lines, spacing: 2)
         for b in buttons {
-            b.controlSize = .small
+            b.controlSize = .regular
             b.alphaValue = 0
         }
         let spacer = NSView()
@@ -665,7 +716,7 @@ final class ConnPane: Pane {
         t.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         t.alignment = .right
         t.bezelStyle = .roundedBezel
-        t.controlSize = .small
+        t.controlSize = .regular
         t.widthAnchor.constraint(equalToConstant: 180).isActive = true
         t.cell?.sendsActionOnEndEditing = true
         t.onAction { c in

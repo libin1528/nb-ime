@@ -1,6 +1,4 @@
-// 主控：按住快捷键说话，松开后把录音送到 ITX 上的 CapsWriter 服务端识别，结果粘贴到当前输入框。
-// 开了流式预览时，Apple 本地识别优先显示增量文字；远端两秒分段预览作为回退。
-// 完整连接松开后出最终结果，粘贴用它。服务端的音频缓存按连接分，两个任务不能挤在一条连接上。
+// 正式识别和可选草稿共用音频流，只有完整结果可以输入。
 
 import AVFoundation
 import Cocoa
@@ -8,14 +6,9 @@ import ServiceManagement
 
 final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private enum Phase { case idle, holding, recording, finishing }
-
     private var tunnel: Tunnel?
-    private var client: ASRClient!            // 完整识别
-    private let localPreview = LocalPreview()
-    private var localPreviewID: String?
-    private var localPreviewStarted = Date()
-    private var localPreviewShown = ""
-    private var preview: ASRClient!           // 流式预览
+    private var client: ASRClient!            // 正式识别
+    private var draft = DictationPreview(enabled: false)
     private var connKey = ""
     private let netWatch = NetWatch()
     /// ssh 报 No route to host：多半是系统设置里没允许 NB 输入法访问本地网络
@@ -35,16 +28,16 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private var taskId = ""
     private var startTime = 0.0
     private var pending: [Float] = []
-    private var sentSamples = 0
     private var peakLevel: Float = 0
     private var frontApp = ""
     private var frontFocus: AXUIElement?      // 开始说话时的焦点，粘贴前对一下
-    private var discard = Set<String>()
     private var taskAudio: [String: [Float]] = [:]
     private var taskMeta: [String: Meta] = [:]
-    private typealias Meta = (seconds: Double, app: String, audio: String?, focus: AXUIElement?)   // audio：存下来的录音文件名
-    // 不带热词重认的任务 id → 原任务、原任务松开的时间；不保留可疑文本作兜底
-    private var plainOf: [String: (orig: String, started: Date?)] = [:]
+    private typealias Meta = (seconds: Double, app: String, audio: String?, focus: AXUIElement?)
+    // 不带热词重认的任务 id → 原任务 id
+    private var finalFrames: [String: [String: Any]] = [:]
+    private var plainOf: [String: String] = [:]
+    private var retryClients: [String: ASRClient] = [:]
     private var releasedAt: [String: Date] = [:]
     private var polishing = 0                     // 正在润色、还没粘贴的几句
     private var waiting: (text: String, timer: Timer, then: () -> Void)?   // 等焦点回到输入框的那一句
@@ -52,13 +45,15 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     static let focusWait = 4.0
 
     // 流式预览
-    static let previewSeg = 2.0, previewOverlap = 0.5
-    private var previewId: String?
     private var previewShown = ""
     private var previewStarted = Date()
 
     private let args = CommandLine.arguments
     private lazy var testFile: String? = arg("--test-file")
+    private var previewEnabled: Bool {
+        if testFile != nil, let value = arg("--preview") { return value == "on" }
+        return Settings.current.streamPreview
+    }
     private lazy var demo: String? = arg("--demo")
     private lazy var polishTest: String? = arg("--polish-test")
     private func arg(_ name: String) -> String? {
@@ -82,17 +77,6 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             runEditTest(typed)
             return
         }
-        localPreview.onText = { [weak self] text in
-            guard let self, self.localPreviewID == self.taskId, self.phase == .recording, Settings.current.streamPreview else { return }
-            let hot = Settings.hotwordList()
-            let clean = PreviewFilter.apply(text, words: hot)
-            guard !clean.isEmpty, clean != self.localPreviewShown else { return }
-            self.localPreviewShown = clean
-            let elapsed = Date().timeIntervalSince(self.localPreviewStarted)
-            if self.testFile != nil { print(String(format: "LOCAL PREVIEW %.3fs %@", elapsed, clean)) }
-            self.capsule.setPreview(Hotfix.apply(Replace.apply(clean, Settings.replaceRules()).text, hot))
-        }
-        if demo == nil, s.streamPreview { localPreview.prepare(language: s.language) }
         connect()
         netWatch.onChange = { [weak self] in self?.reconnectAfterNetworkChange() }
         if testFile == nil, demo == nil { netWatch.start() }
@@ -114,9 +98,9 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         hotkey.tapThreshold = { Settings.current.holdThreshold }
         hotkey.onRepeatPrepare = { [weak self] in
             guard let self else { return }
-            let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier
-            let element = self.phase == .holding ? self.frontFocus : self.phase == .idle ? EditWatcher.focused() : nil
-            guard let pid, let element else { self.recentRepeat.cancel(); return }
+            guard self.phase == .holding || self.phase == .idle,
+                  let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                  let element = RecentRepeat.Context.focused(in: pid) else { self.recentRepeat.cancel(); return }
             self.recentRepeat.prepare(expectedPID: pid, expectedElement: element)
         }
         hotkey.onRepeat = { [weak self] in self?.repeatRecent() }
@@ -142,7 +126,8 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     func applicationWillTerminate(_ n: Notification) {
         mediaDuck.shutdown()
         recorder.stop()
-        localPreview.stop()
+        releasedAt.removeAll()
+        retryClients.values.forEach { $0.stop() }
         tunnel?.stop()
     }
 
@@ -156,7 +141,6 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     private func connect() {
         tunnel?.stop()
         client?.stop()
-        preview?.stop()
         let s = Settings.current
         connKey = s.connectionKey
         tunnel = nil
@@ -171,19 +155,16 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             t.start()
             tunnel = t
         }
-        client = ASRClient(url: s.url, name: "完整")
-        preview = ASRClient(url: s.url, name: "预览")
+        client = ASRClient(url: s.url, name: "识别")
         client.onState = { [weak self] in
             if self?.client.connected == true { self?.localNetworkBlocked = false }
             self?.refreshStatus()
             NotificationCenter.default.post(name: .connectionChanged, object: nil)
         }
         client.onResult = { [weak self] id, final, text in self?.handleResult(id, final, text) }
-        preview.onResult = { [weak self] id, final, text in self?.handlePreview(id, final, text) }
-        let c = client!, p = preview!
+        let c = client!
         DispatchQueue.main.asyncAfter(deadline: .now() + (tunnel == nil ? 0 : 1)) {
             c.connect()
-            p.connect()
         }
     }
 
@@ -223,8 +204,10 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             hotkey.codes = s.hotkeyCodes
             Log.w("快捷键改成 \(Hotkey.describe(s.hotkeyCodes))")
         }
-        if Settings.current.streamPreview { localPreview.prepare(language: Settings.current.language) }
-        else { localPreviewID = nil; localPreview.stop() }
+        if !previewEnabled {
+            draft.stop()
+            if phase == .recording { capsule.setPreview("") }
+        }
         try? recorder.prepare()   // 换了麦克风的话先把引擎建好
         refreshStatus()
     }
@@ -288,7 +271,6 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         taskId = UUID().uuidString
         startTime = Date().timeIntervalSince1970
         pending = []
-        sentSamples = 0
         peakLevel = 0
         frontApp = NSWorkspace.shared.frontmostApplication?.localizedName ?? ""
         let t0 = Date()
@@ -325,62 +307,72 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             phase = .idle
             Log.w("按得太短（不到 \(Settings.current.holdThreshold) 秒），不录")
         case .recording:
+            let released = Date()
+            draft.stop()
             recorder.finish()
             phase = .finishing
             mediaDuck.end(playSound: Settings.current.sounds ? { Sounds.stop() } : nil)
             let id = taskId
             DispatchQueue.main.asyncAfter(deadline: .now() + Settings.current.tailSeconds) { [weak self] in
-                guard let self, self.taskId == id else { return }
+                guard let self, self.taskId == id, self.phase == .finishing else { return }
                 self.recorder.stop()
                 self.mediaDuck.end()
                 // 让最后几块转换好的音频先进队列
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.finishTask(id) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self.finishTask(id, released: released) }
             }
         default:
             break
         }
     }
 
-    private func finishTask(_ id: String) {
-        // 松开后预览就不再喂了；它的结尾等完整结果回来再发，免得服务端先去算预览、完整结果排在后面
-        holdPreview()
+    private func finishTask(_ id: String, released: Date) {
+        guard taskId == id, phase == .finishing else { return }
         flush()
         phase = .idle
-        let audio = (taskAudio[id] ?? []) + pending
+        let recorded = taskAudio.removeValue(forKey: id) ?? []
+        let audio = recorded + pending
         pending = []
         let secs = Double(audio.count) / 16000
         let mic = Recorder.deviceName
         let file = testFile == nil ? Recordings.save(audio, id: id) : nil
-        guard sentSamples > 0 else {
+        guard !recorded.isEmpty else {
             // 从头到尾没声音（无线麦的发射器没开、休眠、离太远都会这样）：一个字节都没送，送了模型也只会抄热词表
-            previewToClose = nil
             Log.w("没声音 \(id.prefix(8)) 时长 \(String(format: "%.1f", secs))s 麦克风 \(mic)，不送去识别")
             if testFile != nil { print("RESULT 没声音"); NSApp.terminate(nil) }
             if secs >= 0.2 { capsule.show(.note("mic.slash", "没听到声音 · \(mic)"), for: 2.6) } else { capsule.hide() }
             refreshStatus()
             return
         }
-        send(data: "", final: true)
-        releasedAt[id] = Date()
-        armTimeout(id)
-        taskMeta[id] = (secs, frontApp, file, frontFocus)
-        Log.w("送出 \(id.prefix(8)) 时长 \(String(format: "%.1f", secs))s 音量峰值 \(String(format: "%.2f", peakLevel)) 麦克风 \(mic)")
-        if sentSamples < 16000 / 5 {
-            discard.insert(id)
+        if recorded.count < 16000 / 5 {
+            send(data: "", final: true)
+            if testFile != nil { print("RESULT 录音太短"); NSApp.terminate(nil) }
             capsule.hide()
-        } else if testFile == nil {
-            capsule.showThinking()
+            refreshStatus()
+            return
         }
+        releasedAt[id] = released
+        taskAudio[id] = audio
+        taskMeta[id] = (secs, frontApp, file, frontFocus)
+        if testFile == nil { capsule.showThinking() }
+        Log.w("收尾 \(id.prefix(8)) 时长 \(String(format: "%.1f", secs))s 音量峰值 \(String(format: "%.2f", peakLevel)) 麦克风 \(mic)")
+        send(data: "", final: true)
+        armTimeout(id)
         refreshStatus()
     }
 
     private func armTimeout(_ id: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
-            guard let self, self.releasedAt.removeValue(forKey: id) != nil, !self.discard.contains(id) else { return }
+            guard let self, let started = self.releasedAt.removeValue(forKey: id) else { return }
+            if let audio = self.taskAudio.removeValue(forKey: id), !audio.isEmpty {
+                Log.w("识别等待超时 \(id.prefix(8))，新建连接重送录音一次")
+                self.reread(id, started: started, audio: audio, frame: self.finalFrames.removeValue(forKey: id))
+                return
+            }
             Log.w("识别超时 \(id.prefix(8))，晚到的结果不再输入")
-            self.discard.insert(id)   // 服务端卡住以后结果可能过很久才回来，那时再粘贴就粘到别处去了
             self.taskAudio[id] = nil
             self.plainOf[id] = nil
+            self.retryClients.removeValue(forKey: id)?.stop()
+            self.taskMeta[id] = nil
             self.capsule.show(.note("clock", "识别超时"), for: 2)
             self.refreshStatus()
         }
@@ -388,16 +380,13 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
 
     private func cancelRecording(_ why: String) {
         Log.w("取消录音：\(why)")
+        draft.stop()
         mediaDuck.end()
         recorder.stop()
-        localPreviewID = nil
-        localPreview.stop()
-        if Settings.current.streamPreview { localPreview.prepare(language: Settings.current.language) }
         if phase == .recording || phase == .finishing {
-            discard.insert(taskId)
-            send(data: "", final: true)
-            holdPreview()
-            closePreview()
+            if taskAudio[taskId] != nil { send(data: "", final: true) }
+            taskAudio[taskId] = nil
+            pending = []
         }
         phase = .idle
         capsule.hide()
@@ -406,7 +395,6 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
 
     private func handleSamples(_ samples: [Float]) {
         guard phase != .idle else { return }
-        localPreview.append(samples)
         let v = Recorder.level(samples)
         peakLevel = max(peakLevel, v)
         capsule.setLevel(v)
@@ -414,29 +402,28 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         if phase != .holding, pending.count >= 1600 { flush() }
     }
 
-    /// 送一批音频去识别。一直没声音就先攒着不送，有声音了连前面的一起补上
+    /// 保留音频以便重认，有声音了再连前面攒下的一起发。
     private func flush() {
         guard !pending.isEmpty, peakLevel > 0 else { return }
-        let b64 = pending.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
-        sentSamples += pending.count
-        taskAudio[taskId, default: []] += pending
+        let samples = pending
+        taskAudio[taskId, default: []] += samples
         pending = []
-        send(data: b64, final: false)
-        if let pid = previewId {
-            preview.send(message(pid, b64, false, Settings.hotwordList().joined(separator: "，"),
-                                 seg: Self.previewSeg, overlap: Self.previewOverlap))
-        }
+        let b64 = samples.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
+        let request = phase == .recording ? draft.append(samples, task: taskId) : nil
+        send(data: b64, final: false, preview: request)
     }
 
-    private func send(data: String, final: Bool) {
-        client.send(message(taskId, data, final, Settings.hotwordList().joined(separator: "，")))
+    private func send(data: String, final: Bool, preview: [String: Any]? = nil) {
+        var frame = message(taskId, data, final, Settings.hotwordList().joined(separator: "，"))
+        frame["nb_preview"] = preview
+        if final, releasedAt[taskId] != nil { finalFrames[taskId] = frame }
+        client.send(frame)
     }
 
-    private func message(_ id: String, _ data: String, _ final: Bool, _ context: String,
-                         seg: Double = 60, overlap: Double = 4) -> [String: Any] {
+    private func message(_ id: String, _ data: String, _ final: Bool, _ context: String) -> [String: Any] {
         [
             "task_id": id, "source": "mic", "data": data, "is_final": final,
-            "time_start": startTime, "seg_duration": seg, "seg_overlap": overlap,
+            "time_start": startTime, "seg_duration": 60.0, "seg_overlap": 4.0,
             "context": context, "language": Settings.current.language,
         ]
     }
@@ -444,88 +431,78 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
     // MARK: 流式预览
 
     private func startPreview() {
-        closePreview()
-        previewId = nil
+        draft = DictationPreview(enabled: previewEnabled)
         previewShown = ""
-        guard Settings.current.streamPreview else { return }
-        localPreviewID = taskId
-        localPreviewStarted = Date()
-        localPreviewShown = ""
-        if localPreview.start() { localPreview.append(pending) }
-        guard preview.connected else { return }
-        previewId = UUID().uuidString
         previewStarted = Date()
     }
 
-    private var previewToClose: String?
-
-    private func holdPreview() {
-        localPreviewID = nil
-        localPreview.stop()
-        if Settings.current.streamPreview { localPreview.prepare(language: Settings.current.language) }
-        guard let pid = previewId else { return }
-        previewId = nil
-        previewToClose = pid
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            if self?.previewToClose == pid { self?.closePreview() }
-        }
-    }
-
-    /// 结束服务端那边的预览任务，清掉这条连接上的音频缓存
-    private func closePreview() {
-        guard let pid = previewToClose else { return }
-        previewToClose = nil
-        preview.send(message(pid, "", true, "", seg: Self.previewSeg, overlap: Self.previewOverlap))
-    }
-
-    private func handlePreview(_ id: String, _ final: Bool, _ raw: String) {
-        guard id == previewId, !final, !localPreview.hasRecentResult else { return }
+    private func showRemotePreview(_ id: String, _ raw: String) {
+        guard phase == .recording, previewEnabled, draft.expects(id) else { return }
         let hotwords = Settings.hotwordList()
         let text = PreviewFilter.apply(raw.trimmingCharacters(in: .whitespacesAndNewlines), words: hotwords)
         if text != raw.trimmingCharacters(in: .whitespacesAndNewlines) {
             Log.w("预览去掉热词表回声：\(raw) → \(text)")
         }
-        guard !text.isEmpty, text != previewShown else { return }
-        previewShown = text
+        guard let display = draft.accept(id, text: text), display != previewShown else { return }
+        previewShown = display
         let t = String(format: "%.1f", Date().timeIntervalSince(previewStarted))
-        if testFile != nil { print("PREVIEW \(t)s \(text)") }
-        Log.w("预览 \(t)s：\(text)")
-        capsule.setPreview(Hotfix.apply(Replace.apply(text, Settings.replaceRules()).text, Settings.hotwordList()))
+        if testFile != nil { print("PREVIEW \(t)s \(display)") }
+        Log.w("预览 \(t)s：\(display)")
+        capsule.setPreview(Hotfix.apply(Replace.apply(display, Settings.replaceRules()).text, Settings.hotwordList()))
     }
 
     // MARK: 结果
 
-    /// 同一段录音不带热词再认一次
-    private func reread(_ id: String, started: Date?, audio: [Float]) {
+    /// 另开一条连接重认，服务端按连接缓存音频，避免和下一句录音混在一起。
+    private func reread(_ id: String, started: Date, audio: [Float], frame: [String: Any]? = nil) {
         let rid = UUID().uuidString
-        plainOf[rid] = (id, started)
-        resend(id, as: rid, audio: audio, context: "")
+        if frame == nil { plainOf[rid] = id }
+        taskMeta[rid] = taskMeta.removeValue(forKey: id)
+        releasedAt[rid] = started
+        let retry = ASRClient(url: client.url, name: "重认")
+        retryClients[rid] = retry
+        retry.onResult = { [weak self] id, final, text in self?.handleResult(id, final, text) }
+        retry.onState = { [weak self, weak retry] in
+            guard let self, let retry, retry.connected, self.releasedAt[rid] != nil else { return }
+            retry.onState = nil
+            self.sendRecording(audio, id: rid, via: retry, frame: frame)
+        }
+        armTimeout(rid)
+        retry.connect()
     }
 
-    private func resend(_ id: String, as rid: String, audio: [Float], context: String) {
-        taskMeta[rid] = taskMeta.removeValue(forKey: id)
-        releasedAt[rid] = Date()
-        armTimeout(rid)
-        let b64 = audio.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
-        client.send(message(rid, b64, false, context))
-        client.send(message(rid, "", true, context))
+    private func sendRecording(_ audio: [Float], id: String, via retry: ASRClient, frame: [String: Any]?) {
+        var packet = frame ?? message(id, "", true, "")
+        packet["task_id"] = id
+        packet["is_final"] = false
+        audio.withUnsafeBufferPointer { samples in
+            for offset in stride(from: 0, to: samples.count, by: 16_000) {
+                let bytes = UnsafeBufferPointer(rebasing: samples[offset..<min(offset + 16_000, samples.count)])
+                packet["data"] = Data(buffer: bytes).base64EncodedString()
+                retry.send(packet)
+            }
+        }
+        packet["is_final"] = true
+        packet["data"] = ""
+        retry.send(packet)
     }
 
     private func handleResult(_ id: String, _ final: Bool, _ raw: String) {
-        guard final else { return }
-        closePreview()
-        var started = releasedAt.removeValue(forKey: id)
-        let audio = taskAudio.removeValue(forKey: id)
-        if discard.remove(id) != nil {
-            taskMeta[id] = nil
+        if draft.expects(id) {
+            if final { showRemotePreview(id, raw) }
             return
         }
+        guard final else { return }
+        guard let started = releasedAt.removeValue(forKey: id) else { return }
+        finalFrames[id] = nil
+        retryClients.removeValue(forKey: id)?.stop()
+        let audio = taskAudio.removeValue(forKey: id)
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let hot = Settings.hotwordList()
         let plain = plainOf.removeValue(forKey: id)
+        if testFile != nil { print("ASR RAW \(text)") }
         if let plain {
-            Log.w("重认 \(plain.orig.prefix(8))：不带热词「\(text)」")
-            started = plain.started
+            Log.w("重认 \(plain.prefix(8))：不带热词「\(text)」")
         }
         switch HotwordEcho.resolve(text, words: hot, retry: plain != nil) {
         case .accept(let accepted): text = accepted
@@ -542,11 +519,16 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             text = ""
         }
         let meta = taskMeta.removeValue(forKey: id)
+        polishAndDeliver(text, hot: hot, started: started, meta: meta)
+    }
+
+    private func polishAndDeliver(_ recognized: String, hot: [String], started: Date,
+                                  meta: Meta?) {
+        var text = recognized
         if text.isEmpty {
             deliver("", recognized: "", started: started, meta: meta)
             return
         }
-        let ms = started.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
         let signed = Signfix.apply(text)
         if signed != text {
             Log.w("正负号换回字：\(text) → \(signed)")
@@ -558,12 +540,19 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
             Log.w("按规则替换：\(replaced.hits.joined(separator: "，"))")
             text = replaced.text
         }
+        let aliases = Settings.pronunciationAliases()
+        if !aliases.isEmpty {
+            text = LocalNameCandidates.resolve(text, hotwords: hot, aliases: aliases, times: []).text
+        }
         let fixed = Hotfix.apply(text, hot)
         if fixed != text {
             Log.w("按读音换回热词：\(text) → \(fixed)")
             text = fixed
         }
-        Log.w("结果 \(id.prefix(8)) 松开后 \(ms)ms：\(text)")
+        let route = "远端完整"
+        let ms = Int(Date().timeIntervalSince(started) * 1000)
+        Log.w("结果 \(route) 松开后 \(ms)ms：\(text)")
+        if testFile != nil { print("TRANSCRIPT \(route) \(ms)ms \(text)") }
         // 粘贴前交给小模型去口误、整理格式。热词先换好，模型照着热词表不动它们
         let s = Settings.current
         polishing += 1
@@ -789,12 +778,13 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
         }
         let all = Array(UnsafeBufferPointer(start: dst.floatChannelData![0], count: Int(dst.frameLength)))
         func go() {
-            guard client.connected, preview.connected || !Settings.current.streamPreview else {
+            guard client.connected else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { go() }
                 return
             }
             taskId = UUID().uuidString
             startTime = Date().timeIntervalSince1970
+            let began = Date()
             phase = .recording
             startPreview()
             var i = 0
@@ -805,8 +795,10 @@ final class AppController: NSObject, NSApplicationDelegate, SettingsHost {
                 i = end
                 if i >= all.count {
                     t.invalidate()
-                    print("RELEASE \(String(format: "%.1f", Date().timeIntervalSince(self.previewStarted)))s")
-                    self.finishTask(self.taskId)
+                    let released = Date()
+                    print("RELEASE \(String(format: "%.1f", released.timeIntervalSince(began)))s")
+                    self.phase = .finishing
+                    self.finishTask(self.taskId, released: released)
                 }
             }
         }

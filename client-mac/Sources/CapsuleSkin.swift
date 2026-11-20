@@ -18,7 +18,7 @@ enum CapsuleSkin: String, CaseIterable {
     var detail: String {
         switch self {
         case .intelligence: return "彩色流光描边，文字清晰醒目"
-        case .glass: return "高透毛玻璃，轻薄、没有彩色光效"
+        case .glass: return "透出窗口底色，文字随系统明暗切换"
         case .minimal: return "小字号、小状态条，纯色平面更安静"
         }
     }
@@ -33,16 +33,25 @@ enum CapsuleSkin: String, CaseIterable {
     var contentX: CGFloat { 8 + badgeSize + (self == .minimal ? 7 : 10) }
     var trailingInset: CGFloat { self == .minimal ? 12 : 16 }
     var waveWidth: CGFloat { self == .minimal ? 68 : 118 }
-    var textFont: NSFont { .systemFont(ofSize: self == .minimal ? 12 : (self == .glass ? 15 : 16), weight: self == .intelligence ? .medium : .regular) }
-    var messageFont: NSFont { .systemFont(ofSize: self == .minimal ? 11 : 13, weight: self == .intelligence ? .medium : .regular) }
+    var textFont: NSFont { .systemFont(ofSize: self == .minimal ? 12 : (self == .glass ? 15 : 16), weight: self == .minimal ? .regular : .medium) }
+    var messageFont: NSFont { .systemFont(ofSize: self == .minimal ? 11 : 13, weight: self == .minimal ? .regular : .medium) }
     var smallFont: NSFont { .systemFont(ofSize: self == .minimal ? 10 : 12) }
     var timeFont: NSFont { .monospacedDigitSystemFont(ofSize: self == .minimal ? 10 : 13, weight: .regular) }
 
+    func glassInk(dark: Bool) -> NSColor {
+        NSColor(srgbRed: dark ? 1 : 0.06, green: dark ? 1 : 0.06, blue: dark ? 1 : 0.06, alpha: 1)
+    }
+
     func background(dark: Bool, reduceTransparency: Bool) -> NSColor {
+        // 浮窗和下方应用可能明暗相反；半透明底与字色配对，也让下方窗口颜色可见。
+        if self == .glass {
+            let channel: CGFloat = dark ? 0 : 1
+            return NSColor(srgbRed: channel, green: channel, blue: channel, alpha: reduceTransparency ? 1 : (dark ? 0.56 : 0.52))
+        }
         if self == .minimal || reduceTransparency {
             return NSColor(white: dark ? 0.12 : 0.97, alpha: 1)
         }
-        let alpha: CGFloat = self == .glass ? (dark ? 0.04 : 0.06) : (dark ? 0.28 : 0.32)
+        let alpha: CGFloat = dark ? 0.28 : 0.32
         return NSColor(white: dark ? 0 : 1, alpha: alpha)
     }
 }
@@ -58,7 +67,6 @@ final class CapsuleSurface: NSView {
         glass.style = .clear
         glass.frame = bounds
         glass.autoresizingMask = [.width, .height]
-        addSubview(glass)
         applySkin()
     }
 
@@ -69,10 +77,10 @@ final class CapsuleSurface: NSView {
         glass.cornerRadius = skin.radius
         glass.contentView = nil
         content.removeFromSuperview()
-        glass.isHidden = skin == .minimal
-        // 通透皮肤只减薄玻璃材质，文字单独叠在上面，保持完整不透明度。
-        glass.alphaValue = skin == .glass ? 0.65 : 1
+        glass.removeFromSuperview()
         if skin == .intelligence {
+            glass.frame = bounds
+            addSubview(glass)
             glass.contentView = content
         } else {
             // NSGlassEffectView 会接管内容布局；移出后恢复按父视图伸缩。

@@ -192,7 +192,19 @@ final class ASRClient: NSObject, URLSessionWebSocketDelegate {
     func send(_ obj: [String: Any]) {
         guard let d = try? JSONSerialization.data(withJSONObject: obj),
               let s = String(data: d, encoding: .utf8) else { return }
-        task?.send(.string(s)) { [name] e in if let e { Log.w("[\(name)] 发送失败 \(e.localizedDescription)") } }
+        let id = String((obj["task_id"] as? String ?? "").prefix(8))
+        let final = obj["is_final"] as? Bool == true
+        guard let task else {
+            Log.w("[\(name)] \(id) 发送失败：没有 WebSocket 连接")
+            return
+        }
+        task.send(.string(s)) { [name] error in
+            if let error {
+                Log.w("[\(name)] \(id) 发送失败 \(error.localizedDescription)")
+            } else if final {
+                Log.w("[\(name)] \(id) 本地 WebSocket 已发出结束帧")
+            }
+        }
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {

@@ -69,10 +69,15 @@ enum UI {
     static func row(_ title: String, _ detail: String? = nil, _ accessory: NSView) -> NSView {
         var left: [NSView] = [label(title)]
         if let detail { left.append(wrapping(detail, size: 11.5, width: 360)) }
+        (accessory as? NSControl)?.setAccessibilityLabel(title)
         let l = vstack(left, spacing: 1)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let h = hstack([l, spacer, accessory], spacing: 16)
+        if let toggle = accessory as? NSSwitch {
+            let click = NSClickGestureRecognizer(target: toggle, action: #selector(NSControl.performClick(_:)))
+            l.addGestureRecognizer(click)
+        }
         h.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
         h.heightAnchor.constraint(greaterThanOrEqualToConstant: 42).isActive = true
         return h
@@ -89,7 +94,7 @@ enum UI {
 
     static func toggle(_ on: Bool, _ f: @escaping (Bool) -> Void) -> NSSwitch {
         let s = NSSwitch()
-        s.controlSize = .small
+        s.controlSize = .regular
         s.state = on ? .on : .off
         s.onAction { f(($0 as! NSSwitch).state == .on) }
         return s
@@ -97,8 +102,9 @@ enum UI {
 
     static func segmented(_ labels: [String], selected: Int, _ f: @escaping (Int) -> Void) -> NSSegmentedControl {
         let s = NSSegmentedControl(labels: labels, trackingMode: .selectOne, target: nil, action: nil)
+        for (i, label) in labels.enumerated() where label.count <= 2 { s.setWidth(44, forSegment: i) }
         s.selectedSegment = selected
-        s.controlSize = .small
+        s.controlSize = .regular
         s.onAction { f(($0 as! NSSegmentedControl).selectedSegment) }
         return s
     }

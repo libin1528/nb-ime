@@ -21,14 +21,28 @@ final class RecentRepeat {
             return true
         }
 
+        static func focused(in pid: pid_t) -> AXUIElement? {
+            // 全局焦点在部分窗口会暂时为空。直接查询手势所在的前台应用，并验证元素归属。
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.3)
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &value) == .success,
+               let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
+                let element = value as! AXUIElement
+                var owner: pid_t = 0
+                if AXUIElementGetPid(element, &owner) == .success, owner == pid { return element }
+            }
+            return EditWatcher.focused()
+        }
+
         static func current() -> Context? {
-            guard let target = PasteTarget.frontmost(), let element = EditWatcher.focused() else { return nil }
+            guard let target = PasteTarget.frontmost(), let element = focused(in: target.pid) else { return nil }
             var pid: pid_t = 0, range: CFTypeRef?
             guard AXUIElementGetPid(element, &pid) == .success, pid == target.pid else { return nil }
             let editable = ["AXTextField", "AXTextArea", "AXComboBox"].contains(EditWatcher.role(element))
                 || AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &range) == .success
             return Context(target: target, element: element, editable: editable,
-                           remote: target.isRustDesk ? RetypeFocus.observe(target: target) : nil)
+                           remote: target.isRustDesk ? RetypeFocus.observe(beforeMenu: true, target: target) : nil)
         }
     }
 

@@ -58,6 +58,18 @@ import Cocoa
                 check(skin.background(dark: dark, reduceTransparency: false).alphaComponent == 1 || skin != .minimal, "平面皮肤始终不透明")
             }
         }
+        for dark in [false, true] {
+            let tint = CapsuleSkin.glass.background(dark: dark, reduceTransparency: false).usingColorSpace(.sRGB)!
+            let ink = CapsuleSkin.glass.glassInk(dark: dark).usingColorSpace(.sRGB)!
+            check(1 - tint.alphaComponent >= 0.4, "玻璃在两种外观下都保留下方底色")
+            func luminance(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+            for backdrop: CGFloat in [0, 1] {
+                let surface = luminance(tint.redComponent * tint.alphaComponent + backdrop * (1 - tint.alphaComponent))
+                let text = luminance(ink.redComponent)
+                check((max(text, surface) + 0.05) / (min(text, surface) + 0.05) >= 4.5,
+                      "浮窗与下方窗口外观相同或相反时，文字都有足够对比")
+            }
+        }
         check(CapsuleSkin.minimal.textFont.pointSize < CapsuleSkin.glass.textFont.pointSize, "平面字号比玻璃小")
         check(CapsuleSkin.minimal.rowHeight < CapsuleSkin.glass.rowHeight, "平面状态条比玻璃小")
         print("Capsule skins: \(passed) passed, \(failed) failed")

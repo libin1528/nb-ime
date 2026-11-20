@@ -39,14 +39,14 @@
 
 市面上免费的语音输入法已经很好用了，我还是自己搭了一套，原因有两个：
 
-- **隐私。** 录音和文字只在自己家的局域网里走，不上传到任何人的服务器。
+- **隐私。** 默认用 ITX 完成识别和 Q4 润色。手动选择 DeepSeek Flash 后，只将待润色的听写文字发给 DeepSeek，录音仍在 ITX 处理。
 - **在我的工作环境里，自己搭的服务体验更好，也更稳定。** 识别跑在一台只为我服务的显卡机器上，不排队、不限流，也不受外网波动影响：松开后约 0.8 秒出完整结果，润色平均再加约 0.5 秒。热词表里是我自己项目的名字，快捷键和润色力度也都按我的习惯调。
 
 线上产品要服务成千上万的人，只能在规模、成本和体验之间找平衡，照顾大多数人的平均需求。NB 输入法不用做这道取舍题：它只服务我一个人，每个选择都只看我用着顺不顺手。
 
 ## 它是怎么工作的
 
-客户端只管录音、显示和输入；识别和润色都在局域网里的一台显卡机器上，经 ssh 隧道连过去，录音和文字都不出家门。
+Mac 客户端负责录音、预览和输入。经 SSH 隧道连接 ITX 的识别和润色服务。
 
 <p align="center">
   <picture>
@@ -144,9 +144,10 @@ https://github.com/libin1528/nb-ime 是别人给自己做的 Mac 语音输入法
 | 录音胶囊 | [`Capsule.swift`](client-mac/Sources/Capsule.swift) | 系统的 `NSGlassEffectView`（clear 玻璃，文字下垫一层反色薄底）；从一颗圆长成胶囊，状态之间整块连续变形；波形跟着音量跳，说话时向上展开实时出字 |
 | 全局快捷键 | [`Hotkey.swift`](client-mac/Sources/Hotkey.swift) | 用 CGEventTap 同时听键盘和鼠标：单按修饰键、F 键、鼠标侧键都能当快捷键，可以设两个；系统停用钩子后按实际按键状态重新对齐；RustDesk 中绑定为录音键的 Option 单按不传给远端，组合键仍完整传递 |
 | 录音和麦克风 | [`Audio.swift`](client-mac/Sources/Audio.swift) · [`Recordings.swift`](client-mac/Sources/Recordings.swift) | 可以跟随系统或指定麦克风，插拔自动刷新；`AVAudioEngine` 只认建它时的设备，切换或唤醒后会重新准备；开麦后一秒收不到采样会自动重建。一直没声音（低于 -55 dB）就不送去识别；最近 20 段录音存成 wav，历史里能回听 |
-| 流式预览 | [`AppController.swift`](client-mac/Sources/AppController.swift) | 同一段录音走两条 WebSocket：优先用 Mac 已安装的 Apple 语音模型实时返回中间文字，远端预览作为回退；松开后用完整识别结果输入。稳定文字保留，新增和修正部分渐进显示，长文本平滑滚动 |
+| 实时预览 | [AppController.swift](client-mac/Sources/AppController.swift) | 语音只上传一次。打开「说话时显示预览」后，ITX 用同一模型识别最近一段；关闭后只做正式识别。 |
 | 热词和「一定替换」 | [`WordsPane.swift`](client-mac/Sources/WordsPane.swift) · [`Replace.swift`](client-mac/Sources/Replace.swift) | 热词页默认是可以点着改的列表，也能切成一行一个的文本；写 `错的=对的` 就是一定替换，按整词、长的先匹配、只换一遍，写错的规则当场标黄说为什么 |
 | 热词按读音纠正 | [`Hotfix.swift`](client-mac/Sources/Hotfix.swift) | 模型写成「万三」，读音和热词「Wan3」一样就换回来；中文要声调也一样，挨着数字、量词的不换 |
+| 专名读音别名 | [`LocalNameCandidates.swift`](client-mac/Sources/LocalNameCandidates.swift) | 跨相邻英文词找热词的拼写变体。用 `you base~=NewBase` 或 `塞神~=session` 添加已确认的读音别名。有明确的专名语境或能确认是专名列表时才替换 |
 | 防模型抄热词表 | [`HotwordEcho.swift`](client-mac/Sources/HotwordEcho.swift) | 整句或正文中出现可疑热词串就不带热词重认一次；空白或仍可疑时停止输入，不恢复旧结果；与预览共用匹配，支持词内空格和连字符 |
 | 句内明确释字纠错 | [`Spelling.swift`](client-mac/Sources/Spelling.swift) | 去口误开启时，依据紧邻名字的「某词的某字」纠正同音同调字；只改该名字与释字，不动热词、引述、否定或歧义内容；没有明确依据就保留 |
 | 识别后润色 | [`Polish.swift`](client-mac/Sources/Polish.swift) · [`DeterminerRestart.swift`](client-mac/Sources/DeterminerRestart.swift) · [`SentenceRestart.swift`](client-mac/Sources/SentenceRestart.swift) | 「去掉口误」「整理格式」各有关 / 中 / 强三档。同一句内一字不差的重说先用代码删掉，完整句边界两侧的重复词保留并保护；「这这个／那那个」只收掉多说的指示词，保留完整「这个／那个」，并防止模型继续删掉量词；不信任小模型的输出，过一遍「只删不加、热词都在、没删人称、没删太多」的检查，不过关就输入本机预处理后的文字 |
@@ -159,11 +160,10 @@ https://github.com/libin1528/nb-ime 是别人给自己做的 Mac 语音输入法
 
 这些在代码里只是一两行，背后都是一次实测或者一次翻车，详细的在 [`docs/`](docs/) 和提交记录里：
 
-- **服务端的音频缓存按连接分，不按任务分。** 预览和完整识别必须各开一条 WebSocket，挤在一条上录音会混在一起，完整结果变成空的。
+- 服务端按连接缓存音频；预览请求从正式音频缓冲区取片段。
 - **人声太弱或者一直没说话时，识别模型会把提示里的热词表原样念出来。** 要检测出来，不带热词再认一遍；重认没有正文时停止输入，不把可疑结果当兜底。预览也会这样，可预览不带热词的话专有名词又会错，两头都得管。录音开头声音弱时，它还会把整张表抄在真话前面（同一段录音认 20 次有 3 次），也要拦。
 - **「识别变差」多半是收音的问题，不是模型。** 无线麦发射器没开或离得远时，接收器只送静音；调好以前说话最响 -47 dB，调好以后 -30 dB 左右，错字跟着没了。所以没声音就别送，胶囊直接说「没听到声音」并带上麦克风名字，录音也存下来能回听。
 - **`AVAudioEngine` 只认建它时的那个设备**，系统换了默认麦克风它也不跟，要重建并显式指定；tap 要用麦克风自己的 `inputFormat`，输入输出采样率不一致时用 `outputFormat` 会直接抛异常；关麦时先停引擎再拆 tap，反过来会崩。
-- **预览的片段长度 2 秒是平衡点：** 比说话慢 1 到 1.5 秒；3 秒更准，但更新太慢。
 - **`NSEvent` 的全局监听收不到单按的修饰键**，改用 CGEventTap。AI 模拟的按键会被系统丢掉，快捷键只能人手按，再看日志判断对不对。
 - **重新编译以后「辅助功能」授权会丢**，用钥匙串里固定的开发证书签名就不丢；换 bundle id 也会丢。
 - **clear 玻璃不垫底，浅色模式下深色背景上的字看不清。** `tintColor` 几乎不起作用，最后自己垫了一层反色薄底。
@@ -210,7 +210,8 @@ https://github.com/libin1528/nb-ime 是别人给自己做的 Mac 语音输入法
 调试：
 
 - `NBIME --mic-test`：只统计内置麦克风采样，不保存或发送音频；依次验证正常录音、唤醒通知和设备重连通知后的录音。通知由测试进程模拟，不会让电脑真的睡眠。
-- `NBIME --test-file <音频>`：不用麦克风，按实时节奏走一遍同样的发送路径（含流式预览），打印 `PREVIEW` / `RESULT`。
+- `NBIME --test-file <audio> [--preview on|off]` — 按实时节奏重放音频，可比较预览开关与整句结果。
+- `python3 tools/name_candidate_shadow.py <合成候选样本.json>`：独立比较 Jev 的选择。只提交标记为合成的短句，输入法不会读取比较结果。
 - `NBIME --demo <界面>`：截图用，`listen` `quiet` `preview` `long` `think` `done` `miss` `offline` `nosound` `stream`（逐段预览）`morph`（录变形用的一整套）`menu` `onboarding` `settings:0`…`settings:7`（外观）。
 - `NBIME --polish-test <文件>`：文件里一行一句，每句按润色的 8 种档位组合各跑一遍，一行一个 JSON（`--levels 中中,强强` 只跑这几种）。改提示词前后都跑一遍对比。
 - `NBIME --edit-test <刚输入的字> [--seconds N]`：假装刚把这段字粘进了焦点输入框，盯 N 秒后把改字结果写进日志，不进记录。要用 `open -g -n -a` 启动装好的 app（辅助功能权限认的是 app）。
@@ -224,7 +225,7 @@ https://github.com/libin1528/nb-ime 是别人给自己做的 Mac 语音输入法
 |---|---|---|
 | [CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline) | 识别服务端，客户端按它的 WebSocket 协议通信 | MIT |
 | [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) | 语音识别模型（1.7B，q5_k 量化版随 CapsWriter 的模型包发布） | Apache-2.0 |
-| [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) | 识别后润色的小模型（用 [unsloth](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) 的 Q8_0 量化） | Apache-2.0 |
+| [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) | 识别后润色的小模型（用 [unsloth](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) 的 Q4_K_M 量化） | Apache-2.0 |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | 跑润色模型的 `llama-server`（用 CapsWriter 自带的 Vulkan 版） | MIT |
 | [websockets](https://github.com/python-websockets/websockets)、[NumPy](https://github.com/numpy/numpy) | `tools/` 里的调试脚本 | BSD-3-Clause |
 

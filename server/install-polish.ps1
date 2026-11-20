@@ -4,7 +4,7 @@
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $bin = Join-Path $env:USERPROFILE "CapsWriter-Offline\core\server\engines\llama\bin\llama-server.exe"
 $dir = Join-Path $env:USERPROFILE "nb-llm"   # 模型放的位置不一样就改这里
-$model = "Qwen3.5-4B-Q8_0.gguf"
+$model = "Qwen3.5-4B-Q4_K_M.gguf"
 $user = "$env:COMPUTERNAME\$env:USERNAME"   # 经 ssh 跑时 USERDOMAIN 是 WORKGROUP，解析不出账户
 
 # 只听本机，客户端走 ssh 隧道；-np 1 一次一句；--no-mmap 权重整份进显存，不占着内存；

@@ -17,6 +17,7 @@ enum Log { static func w(_ s: String) { print(s) } }
   }
   let samples=Array(UnsafeBufferPointer(start:out.floatChannelData![0],count:Int(out.frameLength)))
   let preview=LocalPreview()
+  let expectedTail = CommandLine.arguments.dropFirst(2).first
   for round in 1...2 {
    preview.prepare(language:"auto")
    let deadline=Date().addingTimeInterval(15)
@@ -25,22 +26,38 @@ enum Log { static func w(_ s: String) { print(s) } }
    var count=0, first:Double?, last=""
    let start=Date()
    preview.onText = { text in count += 1; last=text; if first == nil { first=Date().timeIntervalSince(start) } }
-   precondition(preview.start())
+   precondition(preview.start(language:"auto"))
    for i in stride(from:0,to:samples.count,by:1600) {
     preview.append(Array(samples[i..<min(i+1600,samples.count)]))
     try await Task.sleep(for:.milliseconds(100))
    }
    precondition(first != nil && first! < Double(samples.count)/16000,"必须在音频结束前返回文字")
    precondition(count>5 && last.contains("麦克风"),"实际识别应连续返回中间文字")
-   preview.stop(); let stoppedCount=count
+   var finishCalls = 0
+   let released = ProcessInfo.processInfo.systemUptime
+   let final = await withCheckedContinuation { continuation in
+    preview.finish(timeout: 2) { text in
+     finishCalls += 1
+     continuation.resume(returning: text?.text)
+    }
+    if round == 2 { preview.stop() }
+   }
+   if round == 1 {
+    precondition(final?.contains("麦克风") == true, "定稿应保留识别过的正文")
+    if let expectedTail { precondition(final?.contains(expectedTail) == true, "定稿应包含结尾：\(final ?? "")") }
+    print(String(format:"FINAL %.3fs %@", ProcessInfo.processInfo.systemUptime-released, final!))
+   } else {
+    precondition(final == nil, "取消收尾应通知调用方回退")
+   }
+   let stoppedCount=count
    preview.append(samples)
    try await Task.sleep(for:.milliseconds(300))
-   precondition(count==stoppedCount,"取消后不能回调旧文字")
+   precondition(count==stoppedCount && finishCalls == 1,"定稿或取消后不能再次回调")
    print(String(format:"ROUND %d first=%.3fs updates=%d text=%@",round,first!,count,last))
   }
   preview.prepare(language:"zz-XX")
   try await Task.sleep(for:.seconds(1))
-  precondition(!preview.ready && !preview.start(),"不支持语言回退远端")
+  precondition(!preview.ready && !preview.start(language:"zz-XX"),"不支持语言回退远端")
   preview.stop()
   print("LocalPreview lifecycle PASS")
  }

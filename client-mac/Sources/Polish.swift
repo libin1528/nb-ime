@@ -7,6 +7,8 @@
 import Foundation
 
 enum Polish {
+    enum Provider: String { case local, flash }
+
     enum Level: String, CaseIterable {
         case off, mid, strong
         var name: String { ["关", "中", "强"][Self.allCases.firstIndex(of: self)!] }
@@ -25,7 +27,10 @@ enum Polish {
 
     private static func endpoint(_ path: String) -> URL {
         let s = Settings.current
-        let base = s.tunnelHost.isEmpty ? "http://\(s.serverHost):\(s.polishPort)" : "http://127.0.0.1:\(s.polishLocalPort)"
+        let flash = s.polishProvider == .flash
+        let port = flash ? s.transcribePort : s.polishPort
+        let localPort = flash ? s.transcribeLocalPort : s.polishLocalPort
+        let base = s.tunnelHost.isEmpty ? "http://\(s.serverHost):\(port)" : "http://127.0.0.1:\(localPort)"
         return URL(string: base + path)!
     }
 
@@ -65,14 +70,18 @@ enum Polish {
             finished = true
             done(r, String(format: "%.2fs ", Date().timeIntervalSince(started)) + pre + note)
         }
-        var req = URLRequest(url: endpoint("/v1/chat/completions"))
+        let flash = Settings.current.polishProvider == .flash
+        var req = URLRequest(url: endpoint(flash ? "/nb/polish/flash" : "/v1/chat/completions"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+        let payload: [String: Any] = flash ? [
+            "text": text, "clean": clean.rawValue, "format": format.rawValue,
+        ] : [
             "messages": messages(text, clean: clean, format: format, hotwords: hotwords),
             "temperature": 0, "max_tokens": 1024, "cache_prompt": true,
             "chat_template_kwargs": ["enable_thinking": false],
-        ])
+        ]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         let task = session.dataTask(with: req) { data, _, err in
             let out = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                 .flatMap { ($0["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any] }
@@ -96,7 +105,7 @@ enum Polish {
 
     /// 设置页看模型那边在不在
     static func ping(_ done: @escaping (Bool) -> Void) {
-        var req = URLRequest(url: endpoint("/health"))
+        var req = URLRequest(url: endpoint(Settings.current.polishProvider == .flash ? "/nb/polish/flash/status" : "/health"))
         req.timeoutInterval = 3
         session.dataTask(with: req) { data, _, _ in
             let ok = data.flatMap { String(data: $0, encoding: .utf8) }?.contains("ok") ?? false

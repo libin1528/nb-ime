@@ -41,14 +41,14 @@ NB には目的が二つあり、優先順位があります。
 
 無料の音声入力アプリはもう十分に便利です。それでも自分で組んだ理由は二つあります。
 
-- **プライバシー。** 音声も文字も自宅の LAN の中だけを流れ、誰のサーバーにもアップロードされません。
+- **プライバシー。** 標準では音声認識も Q4 による文章の整形も ITX で行います。DeepSeek Flash を選ぶと、整形するテキストだけが DeepSeek に送信されます。
 - **私の作業環境では、自前のサービスのほうが明らかに使い心地がよく、安定している。** 認識は私専用の GPU マシンで動くので、順番待ちも回数制限もなく、外のネットワークの揺らぎにも左右されません。離してから約 0.8 秒で完全な結果が出て、整形は平均でさらに約 0.5 秒。ホットワード表には自分のプロジェクトの名前が入り、ホットキーも整形の強さも自分の癖に合わせてあります。
 
 オンラインの製品は何百万人もの利用者に向けて、規模・コスト・体験の釣り合いを取り、平均的なユーザーに合わせるしかありません。NB はその取捨選択をしなくていい。使うのは私一人なので、どの判断も「自分にとって使いやすいか」だけで決められます。
 
 ## しくみ
 
-クライアントは録音・表示・入力だけ。認識と整形は家の LAN にある GPU マシンで動き、ssh トンネル経由でつなぐので、音声も文字も家の外に出ません。
+Mac で録音して結果を入力します。認識と整形は SSH トンネル経由で ITX に接続します。
 
 <p align="center">
   <picture>
@@ -144,7 +144,7 @@ clone して、まず README、docs/、git log を読んで、各機能がなぜ
 | 録音カプセル | [`Capsule.swift`](client-mac/Sources/Capsule.swift) | システムの `NSGlassEffectView`（clear ガラス＋文字の下に反転色の薄い下地）。点からカプセルに育ち、状態の間をひと続きに変形。波形は音量に追従し、話している間は上に広がって文字をリアルタイム表示 |
 | グローバルホットキー | [`Hotkey.swift`](client-mac/Sources/Hotkey.swift) | CGEventTap でキーボードとマウスを監視。修飾キー単押し、F キー、マウスのサイドボタンもホットキーにでき、二つまで設定可能。システムにタップを止められた後は実際のキー状態に合わせ直す |
 | 録音とマイク | [`Audio.swift`](client-mac/Sources/Audio.swift) · [`Recordings.swift`](client-mac/Sources/Recordings.swift) | システムに従うかマイクを指定、抜き差しで自動更新。`AVAudioEngine` は作ったときのデバイスしか使わないので、デバイスが変わったら作り直す。ずっと無音（-55 dB 未満）なら認識に送らない。直近 20 件の録音を wav で残し、履歴から再生できる |
-| ストリーミングプレビュー | [`AppController.swift`](client-mac/Sources/AppController.swift) | 同じ音声を二本の WebSocket に流す。一本は 2 秒ごとのプレビュー、もう一本は離した後の完全な結果で、入力するのは後者 |
+| プレビュー | [AppController.swift](client-mac/Sources/AppController.swift) | 音声を一度だけ送信し、任意のプレビューは同じ音声バッファを利用します。オフの場合は通常の認識だけを行います。 |
 | ホットワードと「必ず置換」 | [`WordsPane.swift`](client-mac/Sources/WordsPane.swift) · [`Replace.swift`](client-mac/Sources/Replace.swift) | ホットワード画面は標準でクリックして直せる一覧、一行一語のテキストにも切り替え可能。`誤=正` と書けば必ず置換：単語単位、長いほうを優先、一回だけ。効かないルールはその場で黄色になり理由を表示 |
 | 読みによるホットワード補正 | [`Hotfix.swift`](client-mac/Sources/Hotfix.swift) | モデルが「万三」と書いても、読みがホットワード「Wan3」と同じなら書き換える。中国語は声調まで一致が条件、数字や量詞に接する部分は触らない |
 | ホットワード表の写り込み対策 | [`HotwordEcho.swift`](client-mac/Sources/HotwordEcho.swift) | 結果全体や文中に疑わしいホットワード列があれば、ホットワードなしで一度だけ再認識する。空白や再び疑わしい結果なら入力せず、最初の結果に戻さない。プレビューと照合処理を共有し、単語内の空白やハイフンも扱う |
@@ -160,11 +160,10 @@ clone して、まず README、docs/、git log を読んで、各機能がなぜ
 
 コードでは一、二行でも、どれも実測か失敗から出てきたものです。詳細は [`docs/`](docs/) とコミット履歴にあります。
 
-- **サーバーの音声バッファはタスク単位ではなく接続単位。** プレビューと完全認識は別々の WebSocket が必要で、一本にまとめると音声が混ざり、完全な結果が空になる。
+- サーバーは接続ごとに音声を保持し、プレビューは同じバッファから音声を取得します。
 - **声が小さすぎるか無音だと、認識モデルがプロンプト内のホットワード表をそのまま読み上げる。** 検出したら、ホットワードなしで一度だけ再認識する。空白なら入力せず、疑わしい最初の結果には戻さない。プレビューでも起きるが、プレビューにホットワードを付けないと固有名詞を間違えるので、両方の対処が要る。録音の出だしの声が弱いと、本当の発話の前に表をまるごと写すこともある（同じ録音で 20 回中 3 回）ので、これも止める。
 - **「認識が悪くなった」はたいていマイクのせいで、モデルではない。** ワイヤレスマイクの受信機は、送信機が切れていたり遠すぎたりすると無音しか送らない。調整前は話し声のピークが -47 dB、調整後は -30 dB 前後になり、誤字も消えた。だから無音は送らず、カプセルにマイク名つきで「声が聞こえない」と出し、録音も残して聞き直せるようにした。
 - **`AVAudioEngine` は作ったときのデバイスにしがみつく。** システムの既定マイクが変わってもついてこないので、作り直してデバイスを明示する。tap にはマイク自身の `inputFormat` を使う（入出力のサンプルレートが違うと `outputFormat` では例外になる）。止めるときはエンジンを止めてから tap を外す。逆だと落ちる。
-- **プレビューの区切りは 2 秒が釣り合う点：** 発話から 1〜1.5 秒遅れ。3 秒のほうが正確だが更新が遅すぎる。
 - **`NSEvent` のグローバル監視では修飾キーの単押しを拾えない**ので CGEventTap を使う。AI が模擬したキー入力はシステムに捨てられるので、ホットキーは人の手で押してログで判定するしかない。
 - **再ビルドすると「アクセシビリティ」の許可が外れる。** キーチェーンの同じ開発用証明書で署名すれば外れない。bundle id を変えても外れる。
 - **clear ガラスに下地がないと、ライトモードで暗い背景の上の文字が読めない。** `tintColor` はほとんど効かず、反転色の薄い下地を自前で敷いた。
@@ -210,7 +209,7 @@ clone して、まず README、docs/、git log を読んで、各機能がなぜ
 
 デバッグ：
 
-- `NBIME --test-file <音声>`：マイクを使わず、実時間のペースで同じ送信経路（プレビュー含む）を通し、`PREVIEW` / `RESULT` を出力。
+- `NBIME --test-file <audio> [--preview on|off]` — 音声を実時間で再生し、プレビューと最終結果を比較します。
 - `NBIME --demo <画面>`：スクリーンショット用。`listen` `quiet` `preview` `long` `think` `done` `miss` `offline` `nosound` `morph`（変形の一連の流れ）`menu` `onboarding` `settings:0`…`settings:6`。
 - `NBIME --polish-test <ファイル>`：一行一文。各文を整形の 8 通りの組み合わせで実行し、一回ごとに JSON を一行出力（`--levels 中中,强强` で指定した組み合わせだけ）。プロンプトを変える前後で比べるのに使う。
 - `NBIME --edit-test <入力したばかりの文字> [--seconds N]`：その文字をフォーカス中の入力欄に貼ったことにして N 秒見守り、手直しの結果をログに書く（記録には入れない）。インストール済みのアプリを `open -g -n -a` で起動すること（アクセシビリティの許可はアプリに付く）。
@@ -224,7 +223,7 @@ clone して、まず README、docs/、git log を読んで、各機能がなぜ
 |---|---|---|
 | [CapsWriter-Offline](https://github.com/HaujetZhao/CapsWriter-Offline) | 認識サーバー。クライアントはその WebSocket プロトコルで通信 | MIT |
 | [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR) | 音声認識モデル（1.7B、q5_k 量子化版が CapsWriter のモデルパックに同梱） | Apache-2.0 |
-| [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) | 認識後の整形に使う小さなモデル（[unsloth](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) の Q8_0 量子化） | Apache-2.0 |
+| [Qwen3.5-4B](https://huggingface.co/Qwen/Qwen3.5-4B) | 認識後の整形に使う小さなモデル（[unsloth](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF) の Q4_K_M 量子化） | Apache-2.0 |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | 整形モデルを動かす `llama-server`（CapsWriter 同梱の Vulkan 版） | MIT |
 | [websockets](https://github.com/python-websockets/websockets)、[NumPy](https://github.com/numpy/numpy) | `tools/` のデバッグ用スクリプト | BSD-3-Clause |
 

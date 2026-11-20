@@ -1,6 +1,6 @@
 // 录音提示 A：屏幕底部的胶囊。跟音量跳的波形、计时、没听到声音、识别中、已输入、没听清、连不上。
 // 开了流式预览时，第一段文字回来后胶囊向上展开成一块，实时显示文字（design/mockup.html 2.1 节）。
-// 皮肤可选 AI 流光、通透玻璃或极简平面；前两款使用系统的 Liquid Glass（NSGlassEffectView）。
+// 皮肤可选 AI 流光、通透玻璃或极简平面；流光使用 Liquid Glass，通透玻璃在透明窗口上绘制高光和边缘。
 // 出现时从一颗圆长成胶囊，状态之间整块形状连续变形，消失时缩回去。
 
 import Cocoa
@@ -51,7 +51,7 @@ final class Capsule {
         let skin = Settings.current.capsuleSkin
         guard surface.skin != skin else { return }
         surface.skin = skin
-        panel.hasShadow = skin != .minimal
+        panel.hasShadow = skin == .intelligence
         if visible { resize(animated: true) }
     }
 
@@ -208,6 +208,15 @@ final class CapsuleView: NSView {
     var skin = CapsuleSkin.intelligence {
         didSet { previewHeight = 0; needsDisplay = true }
     }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    private var darkAppearance: Bool { effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
+    private var textInk: NSColor { skin == .glass ? skin.glassInk(dark: darkAppearance) : .labelColor }
+    private var secondaryInk: NSColor { skin == .glass ? textInk : .secondaryLabelColor }
+
     static let maxLines = 3
     static let red = NSColor(hex: 0xff453a), green = NSColor(hex: 0x30d158), orange = NSColor(hex: 0xff9f0a)
 
@@ -294,12 +303,16 @@ final class CapsuleView: NSView {
     override func draw(_ dirty: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let b = bounds
-        // 玻璃下垫反色薄底托住文字；平面皮肤和「减少透明度」使用实色。
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        skin.background(dark: dark, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency).setFill()
-        NSBezierPath(roundedRect: b, xRadius: skin.radius, yRadius: skin.radius).fill()
-        // 颜色都用系统的文字色，跟着玻璃的深浅自动变
-        let ink = NSColor.labelColor
+        let shape = NSBezierPath(roundedRect: b, xRadius: skin.radius, yRadius: skin.radius)
+        skin.background(dark: darkAppearance, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency).setFill()
+        shape.fill()
+        if skin == .glass {
+            let rim = NSBezierPath(roundedRect: b.insetBy(dx: 0.5, dy: 0.5), xRadius: skin.radius - 0.5, yRadius: skin.radius - 0.5)
+            textInk.withAlphaComponent(0.14).setStroke()
+            rim.lineWidth = 1
+            rim.stroke()
+        }
+        let ink = textInk
         if skin == .intelligence, mode == .listening || mode == .thinking { drawListeningGlow(ctx, b) }
 
         // 宽度跟着窗口动画在变，按当前宽度决定是不是展开着
@@ -348,14 +361,14 @@ final class CapsuleView: NSView {
         case .done(let n):
             fillBadge(badge, Self.green, symbol: "checkmark")
             x += drawText("已输入", skin.messageFont, ink, x: x, cy: cy) + 6
-            drawText("\(n) 字", skin.smallFont, .secondaryLabelColor, x: x, cy: cy)
+            drawText("\(n) 字", skin.smallFont, secondaryInk, x: x, cy: cy)
         case .miss:
             fillBadge(badge, ink.withAlphaComponent(0.12), symbol: "questionmark", tint: ink)
             drawText("没听清，再说一次", skin.messageFont, ink, x: x, cy: cy)
         case .offline:
             fillBadge(badge, Self.orange, symbol: "wifi.slash")
             x += drawText("连不上识别服务", skin.messageFont, ink, x: x, cy: cy) + 6
-            drawText("正在重试", skin.smallFont, .secondaryLabelColor, x: x, cy: cy)
+            drawText("正在重试", skin.smallFont, secondaryInk, x: x, cy: cy)
         case .note(let sym, let t):
             fillBadge(badge, ink.withAlphaComponent(0.12), symbol: sym, tint: ink)
             drawText(t, skin.messageFont, ink, x: x, cy: cy)
@@ -386,7 +399,7 @@ final class CapsuleView: NSView {
     private func drawTime(_ cy: CGFloat, _ b: NSRect) {
         let t = Int(elapsed)
         let s = "\(t / 60):" + String(format: "%02d", t % 60)
-        let a: [NSAttributedString.Key: Any] = [.font: skin.timeFont, .foregroundColor: NSColor.labelColor.withAlphaComponent(0.7)]
+        let a: [NSAttributedString.Key: Any] = [.font: skin.timeFont, .foregroundColor: skin == .glass ? secondaryInk : NSColor.labelColor.withAlphaComponent(0.7)]
         let size = (s as NSString).size(withAttributes: a)
         (s as NSString).draw(at: NSPoint(x: b.width - skin.trailingInset - size.width, y: cy - size.height / 2), withAttributes: a)
     }
@@ -394,10 +407,10 @@ final class CapsuleView: NSView {
     private func drawSpinner(_ ctx: CGContext, _ r: NSRect, _ now: Date) {
         let c = CGPoint(x: r.midX, y: r.midY)
         ctx.setLineWidth(2)
-        ctx.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.2).cgColor)
+        ctx.setStrokeColor(textInk.withAlphaComponent(0.2).cgColor)
         ctx.strokeEllipse(in: CGRect(x: c.x - 7, y: c.y - 7, width: 14, height: 14))
         let a = CGFloat(now.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.8) / 0.8) * 2 * .pi
-        ctx.setStrokeColor(NSColor.labelColor.cgColor)
+        ctx.setStrokeColor(textInk.cgColor)
         ctx.setLineCap(.round)
         ctx.addArc(center: c, radius: 7, startAngle: a, endAngle: a + .pi / 2, clockwise: false)
         ctx.strokePath()
@@ -421,14 +434,14 @@ final class CapsuleView: NSView {
         ps.minimumLineHeight = skin.lineHeight
         ps.maximumLineHeight = skin.lineHeight
         ps.lineBreakMode = .byWordWrapping
-        let s = NSMutableAttributedString(string: text, attributes: [
-            .font: skin.textFont, .paragraphStyle: ps, .foregroundColor: NSColor.labelColor,
-        ])
+        let attributes: [NSAttributedString.Key: Any] = [.font: skin.textFont, .foregroundColor: textInk, .paragraphStyle: ps]
+        let s = NSMutableAttributedString(string: text, attributes: attributes)
         // 完整文字始终参加排版，尚未显现的字透明，动画期间不会一字一字挤动前文。
         let time = ProcessInfo.processInfo.systemUptime
         if mode == .listening, !reduceMotion {
             for glyph in livePreview.glyphs {
-                s.addAttribute(.foregroundColor, value: NSColor.labelColor.withAlphaComponent(livePreview.opacity(for: glyph, at: time)),
+                let opacity = livePreview.opacity(for: glyph, at: time)
+                s.addAttribute(.foregroundColor, value: textInk.withAlphaComponent(opacity),
                                range: glyph.range)
             }
         }
@@ -470,7 +483,8 @@ final class CapsuleView: NSView {
         ctx.saveGState()
         ctx.clip(to: area)
         if overflow { ctx.beginTransparencyLayer(auxiliaryInfo: nil) }
-        str.draw(with: NSRect(x: area.minX, y: area.maxY - h, width: layoutWidth, height: max(h, fullHeight)), options: [.usesLineFragmentOrigin])
+        let textRect = NSRect(x: area.minX, y: area.maxY - h, width: layoutWidth, height: max(h, fullHeight))
+        str.draw(with: textRect, options: [.usesLineFragmentOrigin])
         if overflow {
             // 上沿一行渐隐
             let colors = [CGColor(gray: 0, alpha: 0), CGColor(gray: 0, alpha: 1)] as CFArray

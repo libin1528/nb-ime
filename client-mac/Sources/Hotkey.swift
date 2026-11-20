@@ -142,7 +142,9 @@ final class Hotkey {
             && event.flags.rawValue & ((generic | devices) & ~ownGeneric & ~ownDevice) != 0
         if repeatBlocked { repeatTap.cancel() }
         if [.keyDown, .keyUp, .flagsChanged, .otherMouseDown, .otherMouseUp].contains(type) {
-            if !codes.contains(code) { repeatTap.cancel() }
+            // 实体地球键在 Fn 松开后还会上报键码 179 的 down/up，同一次敲击只计 Fn。
+            let globeEcho = code == 179 && (type == .keyDown || type == .keyUp) && repeatTap.betweenFnTaps
+            if !codes.contains(code) && !globeEcho { repeatTap.cancel() }
         } else if [.leftMouseDown, .rightMouseDown, .scrollWheel, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged].contains(type) {
             repeatTap.cancel()
         }

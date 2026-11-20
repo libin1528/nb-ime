@@ -56,7 +56,7 @@ enum HotwordStyle {
         let font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
         let out = NSMutableAttributedString()
         for (r, role) in tokens(line) {
-            let s = role == .op ? " → " : line[r].trimmingCharacters(in: .whitespaces)
+            let s = role == .op ? (line[r] == ReplaceRule.aliasSeparator ? " ≈ " : " → ") : line[r].trimmingCharacters(in: .whitespaces)
             guard !s.isEmpty else { continue }
             out.append(NSAttributedString(string: s, attributes: [.font: font].merging(attrs(role, size: size)) { $1 }))
         }
@@ -488,9 +488,11 @@ final class WordsPane: Pane, NSTextViewDelegate {
 
     override func build() {
         // 顶上一句话，右边切「列表 / 文本」
-        let intro = NSMutableAttributedString(string: "识别时优先往这些词上靠。写 ", attributes: [.font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.secondaryLabelColor])
+        let intro = NSMutableAttributedString()
         intro.append(NSAttributedString(string: "错的=对的", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.labelColor]))
-        intro.append(NSAttributedString(string: " 的，左边一律换成右边。", attributes: [.font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.secondaryLabelColor]))
+        intro.append(NSAttributedString(string: " 固定替换，", attributes: [.font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.secondaryLabelColor]))
+        intro.append(NSAttributedString(string: "错的~=对的", attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular), .foregroundColor: NSColor.labelColor]))
+        intro.append(NSAttributedString(string: " 添加专名读音别名。", attributes: [.font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.secondaryLabelColor]))
         let seg = UI.segmented(["列表", "文本"], selected: 0) { [weak self] in self?.showText($0 == 1) }
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
